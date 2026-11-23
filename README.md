@@ -5,11 +5,12 @@ SiteProofは、自分が管理するWebサイトのHTTP応答（死活）、画�
 このリポジトリは、SiteProofを題材にした **AWSの設計・実装・運用のポートフォリオ** も兼ねています。実AWSや実サイトで確認した範囲（実測）、合成データで動きを示す範囲（合成デモ）、設計・実装だけの範囲（未実証）を分けて記載します。
 
 > **MVP v1.0（2026-11-23）時点の状態**
-> - HTTP監視（AWS-B）は5ページで15分ごとに稼働中です。**AWS-B Liteは期限つきのTrial** で、停止期限は **2026-11-27 12:00 JST** です（停止は予定で、実施前です。ずっと動くクラウドサービスではありません）。
+> - **AWS-B Lite Trialは2026-11-23 19:00 JSTに監視を停止し、同日中にTrial専用の主要AWSリソースを撤収しました。** 現在、Trialの定期監視は稼働していません。当初の停止予定は2026-11-27 12:00 JSTでしたが、2026-11-23 19:00 JSTへ前倒ししました（AWS-B Liteは期限つきのTrialで、長期の安定稼働は実証していません）。残っているのは、共有候補のIAM権限境界ポリシー2件、保持期間中のCloudWatchカスタムメトリクス、ローカルの非公開の検証証拠とバックアップです。AWSの実請求額は未確認（UNKNOWN）です。
 > - 低コスト版の **AWS-B Lite** は、1ページ＋一時fixtureで実測検証し（Stage A）、5ページすべてへ適用しました（Stage B、2026-11-23、AWSの記録を読み戻して確認）。6時間・12時間間隔は **未検証**、AWSの実請求額は **UNKNOWN** です。Heartbeat Alarmは移行前後に6回OK⇄ALARMを繰り返しました（誤報の可能性があり、落ち着くかは未確認）。
 > - 画像比較は、実サイト（Tokyo Trouble Navi トップページ）で Desktop / Mobile の Baseline比較を1回実証しました。**定期的な画像監視は未完成**です。
 > - 総合品質（strict quality）は常に **UNKNOWN** です。SiteProofは表示品質のPASSを判定しません。
 > - AWS内の独立Stopperは **未適用** です（後述の「既知の制限」）。
+> - `.local/` に保存した実環境の検証証拠（AWSの出力・ログ・保存データなど）は非公開で、この公開リポジトリには含まれません。
 
 ![HOME（合成デモ）](docs/images/demo/01-home.png)
 
@@ -149,7 +150,8 @@ flowchart LR
 |---|---|
 | **実測済み（Stage A、2026-11-21、1実ページ＋一時fixture、15分間隔）** | 障害検出・通知（重複なし）・復旧通知／SNS失敗時の保留・再送・復旧通知／管理側のAWSセッションが無効な間も監視と通知が継続／ページ単位の停止／通知メール8通の受信（利用者が確認） |
 | **実測済み（Stage B、2026-11-23、5ページ）** | 4ページを順にLiteへ移行し、5ページすべてで初回RUN・CONTROL・集約Heartbeatを読み戻して確認／取り込んだ保存結果は5ページ×56回すべて正常（失敗・判定不能0）／Roll-backは未検証 |
-| **未実施・未検証** | 6時間・12時間間隔は未検証／UNKNOWN通知は未検証／Schedulerを止める試験は未実施／AWSの実請求額はUNKNOWN／独立Stopperは未適用 |
+| **実測済み（終了・撤収、2026-11-23）** | 停止期限を19:00 JSTへ前倒し（5ページの期限パラメータのみ変更、読み戻しで確認）。期限後のRUN・Heartbeatは0件で、期限後に届いた呼び出し1件はLambdaが拒否（PAST_ABSOLUTE_END）。同日中にTrial専用の主要AWSリソース（Alarm・Scheduler・Lambda・ログ・DynamoDB・IAMロール・スタック・SNS・S3）を撤収 |
+| **未実施・未検証** | 6時間・12時間間隔は未検証／UNKNOWN通知は未検証／Scheduler単体を止める試験は未実施（停止は絶対期限による停止のみ実測）／AWSの実請求額はUNKNOWN／独立Stopperは未適用 |
 | 発見 | 欠測1回でもAlarmが発報する場合がありました（想定は連続2回）。正常観察74分の誤報は0件ですが、誤報がないことの証明ではありません |
 
 **費用の目安（推定。実請求ではありません）**：us-east-1、5ページ、6時間間隔、30日、無料枠なしで **約0.41 USD/月**。同条件で、通知まで含めたSynthetics（CloudWatch課金分のみ）は、ページ別Alarm付きで約1.22、サイト単位（3 Canary＋Alarm 3本）で約0.73です。Liteは、ページ別の通知が必要で間隔が約24時間より短い場合に有利です。約24時間以上でサイト単位の通知で足りる場合や、通知が不要で実行料金のみ（約0.22〜0.72）の場合は、Syntheticsのほうが安くなりえます。Syntheticsの他サービス（Lambda・S3等）の費用はUNKNOWNです。旧構成のAlarmなど残っている資源の費用は含みません。内訳・計算式・条件は [SYNTHETICS_COMPARISON.md](docs/aws_portfolio/SYNTHETICS_COMPARISON.md)。
@@ -198,7 +200,8 @@ macOS / Linux の場合は `python3 -B tools/build_offline_demo.py --out demo-ou
 | 2026-11-19 | 実サイトでの初回Baseline比較（限定承認）：Desktop・Mobileとも「変更なし」（差分0ピクセル）、ホスト側の確認84項目すべて成立 | 実測 |
 | 2026-11-20 | AWS-Bの停止期限を2026-11-27 12:00 JSTに設定し、5スタックで読み戻して確認（Lambdaが期限後のイベントを拒否、SchedulerのEndDate） | 実測 |
 | 2026-11-21 | AWS-B Lite Stage A：1実ページ＋一時fixtureで、障害検出・通知・再送・復旧通知、管理側セッション無効中の監視継続、ページ単位の停止を確認（正常観察は約74分、通知メール8通を利用者が確認）。Stage Bと6h／12h間隔は未実施・未検証 | 実測（Executor報告・ローカル保存記録で照合、USER確認） |
-| 2026-11-23 | AWS-B Lite Stage B：残り4ページをLiteへ移行（変更セットを確認してから各1回適用）。5ページで初回RUNとHeartbeatを確認。移行中にHeartbeat Alarmが6回OK⇄ALARM（落ち着くかはUNKNOWN）。停止期限は2026-11-27 12:00 JSTのまま | 実測（AWSの記録を読み戻し、ローカルに取り込み済み） |
+| 2026-11-23 | AWS-B Lite Stage B：残り4ページをLiteへ移行（変更セットを確認してから各1回適用）。5ページで初回RUNとHeartbeatを確認。移行中にHeartbeat Alarmが6回OK⇄ALARM（落ち着くかはUNKNOWN）。この時点の停止期限は2026-11-27 12:00 JST（同日に前倒し、次の行） | 実測（AWSの記録を読み戻し、ローカルに取り込み済み） |
+| 2026-11-23 | AWS-B Lite Trialの終了：停止期限を19:00 JSTへ前倒し。期限後のRUN・Heartbeatは0件、期限後に届いた呼び出し1件はLambdaが拒否。同日中にTrial専用の主要AWSリソースを撤収（残置：共有候補のIAM権限境界ポリシー2件、カスタムメトリクス）。実請求額は未確認 | 実測（AWSの記録を読み戻し。証拠は非公開） |
 | 随時 | 変更あり／判定不能の判定、Desktop／Mobileの比較、履歴・出来事の表示 | 合成デモ・自動テスト |
 
 実測の生ログ・DynamoDBの出力・撮影画像は、アカウント情報などを含むためリポジトリには入れていません（ローカル保管）。
@@ -213,7 +216,7 @@ py -3.15 -B tools/run_offline_tests.py
 
 ## 既知の制限（MVP v1.0）
 
-- **独立Stopperは未適用**：AWS-Bの停止は、Lambdaの期限チェック（層A）とSchedulerのEndDate（層B）の2層だけです。AWS内でリソースを止める独立Stopper（層C）は、現在のIAM権限ではデプロイできないため、コード（`src/aws_b/stopper.py`、`infra/aws_b/stopper.json`）だけを置いています。**完全な自律停止は未完成**です。期限後も監視リソースとアラームは残るため、停止の確認と削除は手動で行います。
+- **独立Stopperは未適用**：AWS-Bの停止は、Lambdaの期限チェック（層A）とSchedulerのEndDate（層B）の2層だけです。AWS内でリソースを止める独立Stopper（層C）は、現在のIAM権限ではデプロイできないため、コード（`src/aws_b/stopper.py`、`infra/aws_b/stopper.json`）だけを置いています。**完全な自律停止は未完成**です。期限後も監視リソースとアラームは残るため、停止の確認と削除は手動で行います（2026-11-23の撤収も手動で行いました）。
 - **strict qualityはUNKNOWN**：表示品質の合格・不合格は判定しません。撮影プロファイルは未認証（PROFILE_UNATTESTED）のままです。「変更あり」は画像に差があるという意味で、不具合の確定ではありません。
 - **外部リソースを遮断したページの比較は「判定不能」のまま**：外部の天気・地図などをallowlistで遮断したページは、画像が同じでも比較は判定不能になります（PASSにはしません）。撮影が完了して安定していれば、Baselineの承認はできます。外部リソースの遮断を理由にBaselineの承認条件を緩める機能は、MVPの対象外です。
 - **実サイトの自動監視は署名付き許可が必要で、未実証**：利用者が自分の鍵で署名した監視許可（OpenSSHの署名）が、登録したサイト・対象設定・撮影構成・期間・回数と一致するときだけ撮影し、許可の範囲内ではBaseline作成後の比較が自動で続きます（[docs/REAL_CAPTURE.md](docs/REAL_CAPTURE.md)）。許可がない間は撮影しません（合成画像で代わりに監視することもしません）。撮影ハーネスの許可モードと実サイトでのE2Eは、まだ実地で検証していません。対象はトップページ（/）のみです。アプリを閉じている間の監視は、利用者がOSのスケジューラーに登録した場合だけ動きます（登録例は未検証）。
@@ -246,7 +249,6 @@ py -3.15 -B tools/run_offline_tests.py
 |---|---|
 | [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | 利用ガイド：インストール・サイト登録・監視許可・Baseline・監視の開始と停止・AWS保存結果の取り込み・データの場所・制限 |
 | [docs/DEMO_VIDEO.md](docs/DEMO_VIDEO.md) | 実演動画（2〜3分）の操作手順と台本 |
-| [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | 利用ガイド：インストール・サイト登録・監視許可・Baseline・監視の開始と停止・AWS保存結果の取り込み・データの場所・制限 |
 | [docs/REAL_CAPTURE.md](docs/REAL_CAPTURE.md) | 実サイトの自動監視：署名付き監視許可、所有権の確認、セットアップ、撮影ハーネスの許可モード（実装済み。実サイトでの通し確認は作者の1サイトのみ） |
 | [docs/BACKGROUND_MONITORING.md](docs/BACKGROUND_MONITORING.md) | アプリを閉じている間の監視（OSのスケジューラー） |
 | [docs/aws_portfolio/ARCHITECTURE.md](docs/aws_portfolio/ARCHITECTURE.md) | 構成図、判定フロー、データフロー、状態遷移 |
