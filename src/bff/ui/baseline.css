@@ -1,0 +1,29 @@
+.panel { padding: 24px; margin-bottom: 24px; min-width: 0; }
+#pair-form { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+#pair-code { max-width: 100%; min-width: 240px; padding: 10px; font: inherit; }
+.baseline-table-wrap { overflow-x: auto; margin: 16px 0; }
+table { width: 100%; border-collapse: collapse; text-align: left; }
+th, td { padding: 12px; border-bottom: 1px solid #dbe1ec; vertical-align: top; overflow-wrap: anywhere; }
+th { color: #52627b; font-weight: 600; }
+.baseline-detail { display: grid; grid-template-columns: minmax(120px, 1fr) 3fr; gap: 8px 16px; }
+.baseline-detail dd { margin: 0; overflow-wrap: anywhere; }
+.baseline-history { padding-left: 24px; }
+.approval-panel { border-top: 1px solid #dbe1ec; margin-top: 20px; padding-top: 16px; }
+.approval-panel label { display: block; margin: 12px 0; }
+.flow-btn:disabled { opacity: .55; cursor: not-allowed; }
+.baseline-history li { padding: 10px 0; overflow-wrap: anywhere; }
+button:disabled { opacity: .5; cursor: default; }
+.local-navigation { display: flex; gap: 20px; flex-wrap: wrap; }
+.local-fields { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; margin: 16px 0; }
+.local-fields label { display: grid; gap: 6px; min-width: 0; max-width: 100%; }
+.local-fields input, .local-fields select { padding: 8px; min-width: 0; max-width: 100%; font: inherit; }
+.preview-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.preview-grid figure { margin: 0; overflow-wrap: anywhere; }
+.preview-grid img { max-width: 100%; min-width: 96px; image-rendering: pixelated; }
+@media (max-width: 600px) { .preview-grid { grid-template-columns: 1fr; } }
+@media (max-width: 600px) { .baseline-detail { grid-template-columns: 1fr; } #pair-code { min-width: 0; } }
+/* M4 uses the existing panel/preview layout. Long provenance stays inside it. */
+#m4-jobs > div { border-bottom: 1px solid #d6dce5; padding: 12px 0; }
+#m4-jobs pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 20rem; overflow: auto; }
+#m4-jobs p, #m4-history p, #m4-result { overflow-wrap: anywhere; }
+#m4-jobs button { margin: 4px; }

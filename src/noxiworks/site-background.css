@@ -1,0 +1,8 @@
+/* Background source: USER-approved AWS OPERATIONS UI-01 / prototype.css.
+   Override only page backgrounds; published AWS-A assets remain unchanged. */
+body.monitor-home, body.aws-operations {
+  background: #f1f6ff;
+}
+body.monitor-home::before, body.aws-operations::before {
+  content:"";position:fixed;z-index:-1;inset:86px 0 0;background:linear-gradient(135deg,transparent 70%,#e1edff 70% 73%,transparent 73%);pointer-events:none
+}

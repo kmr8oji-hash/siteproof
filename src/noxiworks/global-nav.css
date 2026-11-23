@@ -1,0 +1,14 @@
+/* Shared top menu: identical on all six screens, fixed to the top while scrolling. Self-contained (no theme variables). */
+.global-nav { position: sticky; top: 0; z-index: 100; background: #0b1f4a; border-bottom: 3px solid #1f5eff; box-shadow: 0 2px 6px rgba(6, 20, 47, 0.28); }
+.global-nav ul { display: flex; gap: 2px; max-width: 1280px; margin: 0 auto; padding: 0 12px; list-style: none; overflow-x: auto; scrollbar-width: thin; -webkit-overflow-scrolling: touch; }
+.global-nav li { flex: 0 0 auto; margin: 0; }
+.global-nav a { display: block; min-height: 46px; padding: 12px 16px; color: #e1edff; font: 600 0.95rem/1.4 "Yu Gothic UI", "Hiragino Sans", "Meiryo", "Noto Sans JP", system-ui, sans-serif; text-decoration: none; white-space: nowrap; border-bottom: 4px solid transparent; }
+.global-nav a:hover { background: #12306e; color: #ffffff; }
+.global-nav a:focus-visible { outline: 3px solid #ffb020; outline-offset: -3px; }
+.global-nav a[aria-current="page"] { color: #ffffff; background: #1f5eff; border-bottom-color: #12c8f0; }
+@media (max-width: 560px) {
+  .global-nav ul { padding: 0 4px; }
+  .global-nav a { padding: 12px 12px; font-size: 0.88rem; }
+}
+@media (forced-colors: active) { .global-nav a[aria-current="page"] { border-bottom-color: Highlight; } }
+html { scroll-padding-top: 64px; }

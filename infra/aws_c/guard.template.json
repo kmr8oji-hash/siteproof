@@ -1,0 +1,450 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "SiteProof AWS-C GUARD PLANE CANDIDATE (evidence bucket, control table, watchdog, controller, worker role). Creates NO EC2 instance. OFFLINE CANDIDATE / AWS LIVE NOT VERIFIED / AWS-C Worker Pilot NO-GO. AWS has not accepted this template.",
+  "Metadata": {
+    "ReviewStatus": "OFFLINE_CANDIDATE_AWS_LIVE_NOT_VERIFIED",
+    "SafetyGate": "AWS-C Worker Pilot NO-GO; C-02 DEFERRED / OPEN. Deploying this stack is not approval to create an instance.",
+    "Order": "This stack must exist, and its watchdog must have reported at least once, BEFORE the worker stack is created. The worker stack needs this stack's outputs as parameters.",
+    "Termination": "Terminate (not Stop) with EBS deletion is an implementation CANDIDATE. Applying it LIVE and the number of attempts need separate USER approval.",
+    "Budgets": "Cost alerts are notifications for a human. They are not a stop mechanism and are not part of this stack.",
+    "Isolation": "Does not import, reference or modify the AWS-A, ops_guard or AWS-B stacks.",
+    "OpenItems": "s3:if-none-match condition key, ec2:ResourceTag condition on TerminateInstances, Scheduler at() and EndDate text formats, KMS key policy, runtime identifier: all need confirmation against AWS documentation and a LIVE test."
+  },
+  "Parameters": {
+    "PilotRunId": {
+      "Type": "String",
+      "AllowedPattern": "^[a-z0-9][a-z0-9-]{5,40}$",
+      "Description": "Unique id of the single pilot run. Fixed here before any instance exists."
+    },
+    "HardDeadlineUtc": {
+      "Type": "String",
+      "AllowedPattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+      "Description": "Absolute UTC instant at which the watchdog terminates the tagged instance. Not extended automatically. Not a billing cap."
+    },
+    "GuardEndAt": {
+      "Type": "String",
+      "AllowedPattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+      "Description": "UTC instant after which the periodic watchdog schedule stops. Must be later than HardDeadlineUtc (for example +24h) so termination is observed and verified."
+    },
+    "AlertTopicArn": {
+      "Type": "String",
+      "AllowedPattern": "^arn:aws[a-z-]*:sns:[a-z0-9-]+:[0-9]{12}:[A-Za-z0-9_-]{1,256}$"
+    },
+    "CodeBucket": {"Type": "String", "AllowedPattern": "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"},
+    "LambdaCodeKey": {"Type": "String", "AllowedPattern": "^[A-Za-z0-9._/-]{1,512}$"},
+    "LambdaCodeObjectVersion": {"Type": "String", "AllowedPattern": "^[A-Za-z0-9._-]{1,1024}$"},
+    "WorkerBundleKey": {"Type": "String", "AllowedPattern": "^[A-Za-z0-9._/-]{1,512}$", "Description": "Key of the worker source bundle the instance role may read."},
+    "EcrRepositoryArn": {
+      "Type": "String",
+      "AllowedPattern": "^arn:aws[a-z-]*:ecr:[a-z0-9-]+:[0-9]{12}:repository/[a-z0-9._/-]{2,256}$",
+      "Description": "Private repository holding the pinned runtime image."
+    },
+    "EnableKmsSigning": {
+      "Type": "String",
+      "Default": "false",
+      "AllowedValues": ["false", "true"],
+      "Description": "true creates an asymmetric signing key (monthly charge while it exists). CANDIDATE: need and cost to be approved."
+    },
+    "LambdaRuntime": {"Type": "String", "Default": "python3.13", "AllowedPattern": "^python3\\.1[2-9]$"},
+    "LogRetentionDays": {"Type": "Number", "Default": 30, "AllowedValues": [14, 30, 90]}
+  },
+  "Conditions": {
+    "KmsEnabled": {"Fn::Equals": [{"Ref": "EnableKmsSigning"}, "true"]}
+  },
+  "Resources": {
+    "EvidenceBucket": {
+      "Type": "AWS::S3::Bucket",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "PublicAccessBlockConfiguration": {"BlockPublicAcls": true, "IgnorePublicAcls": true, "BlockPublicPolicy": true, "RestrictPublicBuckets": true},
+        "OwnershipControls": {"Rules": [{"ObjectOwnership": "BucketOwnerEnforced"}]},
+        "BucketEncryption": {"ServerSideEncryptionConfiguration": [{"ServerSideEncryptionByDefault": {"SSEAlgorithm": "AES256"}}]},
+        "VersioningConfiguration": {"Status": "Enabled"},
+        "Tags": [{"Key": "Project", "Value": "SiteProof"}, {"Key": "Component", "Value": "AWS-C"}]
+      }
+    },
+    "EvidenceBucketPolicy": {
+      "Type": "AWS::S3::BucketPolicy",
+      "Properties": {
+        "Bucket": {"Ref": "EvidenceBucket"},
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "DenyInsecureTransport",
+              "Effect": "Deny",
+              "Principal": "*",
+              "Action": "s3:*",
+              "Resource": [{"Fn::GetAtt": ["EvidenceBucket", "Arn"]}, {"Fn::Sub": "${EvidenceBucket.Arn}/*"}],
+              "Condition": {"Bool": {"aws:SecureTransport": "false"}}
+            },
+            {
+              "Sid": "DenyUnconditionalWrites",
+              "Effect": "Deny",
+              "Principal": "*",
+              "Action": "s3:PutObject",
+              "Resource": {"Fn::Sub": "${EvidenceBucket.Arn}/*"},
+              "Condition": {"Null": {"s3:if-none-match": "true"}}
+            }
+          ]
+        }
+      }
+    },
+    "ControlTable": {
+      "Type": "AWS::DynamoDB::Table",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "BillingMode": "PAY_PER_REQUEST",
+        "AttributeDefinitions": [{"AttributeName": "pk", "AttributeType": "S"}, {"AttributeName": "sk", "AttributeType": "S"}],
+        "KeySchema": [{"AttributeName": "pk", "KeyType": "HASH"}, {"AttributeName": "sk", "KeyType": "RANGE"}],
+        "Tags": [{"Key": "Project", "Value": "SiteProof"}, {"Key": "Component", "Value": "AWS-C"}]
+      }
+    },
+    "SigningKey": {
+      "Type": "AWS::KMS::Key",
+      "Condition": "KmsEnabled",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "Description": "SiteProof AWS-C run-manifest signing key (CANDIDATE). Sign by the worker role only.",
+        "KeySpec": "ECC_NIST_P256",
+        "KeyUsage": "SIGN_VERIFY",
+        "KeyPolicy": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "AccountAdministersKeyThroughIam",
+              "Effect": "Allow",
+              "Principal": {"AWS": {"Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:root"}},
+              "Action": "kms:*",
+              "Resource": "*"
+            }
+          ]
+        },
+        "Tags": [{"Key": "Project", "Value": "SiteProof"}, {"Key": "Component", "Value": "AWS-C"}]
+      }
+    },
+    "WorkerRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [{"Effect": "Allow", "Principal": {"Service": "ec2.amazonaws.com"}, "Action": "sts:AssumeRole"}]
+        },
+        "Policies": [{
+          "PolicyName": "WorkerLeastPrivilege",
+          "PolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Sid": "PublishAndReadBackOwnRunOnly",
+                "Effect": "Allow",
+                "Action": ["s3:PutObject", "s3:GetObject", "s3:GetObjectAttributes"],
+                "Resource": {"Fn::Sub": "${EvidenceBucket.Arn}/runs/${PilotRunId}/*"}
+              },
+              {
+                "Sid": "ReadPinnedWorkerBundle",
+                "Effect": "Allow",
+                "Action": ["s3:GetObject", "s3:GetObjectVersion"],
+                "Resource": {"Fn::Sub": "arn:${AWS::Partition}:s3:::${CodeBucket}/${WorkerBundleKey}"}
+              },
+              {
+                "Sid": "JournalOwnRunOnly",
+                "Effect": "Allow",
+                "Action": ["dynamodb:GetItem", "dynamodb:UpdateItem"],
+                "Resource": {"Fn::GetAtt": ["ControlTable", "Arn"]},
+                "Condition": {"ForAllValues:StringEquals": {"dynamodb:LeadingKeys": [{"Fn::Sub": "PILOT#${PilotRunId}"}]}}
+              },
+              {
+                "Sid": "RegistryLoginToken",
+                "Effect": "Allow",
+                "Action": "ecr:GetAuthorizationToken",
+                "Resource": "*"
+              },
+              {
+                "Sid": "PullPinnedRuntimeImage",
+                "Effect": "Allow",
+                "Action": ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability"],
+                "Resource": {"Ref": "EcrRepositoryArn"}
+              },
+              {
+                "Fn::If": ["KmsEnabled",
+                  {"Sid": "SignRunManifest", "Effect": "Allow", "Action": "kms:Sign", "Resource": {"Fn::GetAtt": ["SigningKey", "Arn"]}},
+                  {"Ref": "AWS::NoValue"}]
+              }
+            ]
+          }
+        }],
+        "Tags": [{"Key": "Project", "Value": "SiteProof"}, {"Key": "Component", "Value": "AWS-C"}]
+      }
+    },
+    "WorkerInstanceProfile": {
+      "Type": "AWS::IAM::InstanceProfile",
+      "Properties": {"Roles": [{"Ref": "WorkerRole"}]}
+    },
+    "WatchdogLogGroup": {
+      "Type": "AWS::Logs::LogGroup",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "LogGroupName": {"Fn::Sub": "/aws/lambda/${AWS::StackName}-watchdog"},
+        "RetentionInDays": {"Ref": "LogRetentionDays"}
+      }
+    },
+    "WatchdogRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [{"Effect": "Allow", "Principal": {"Service": "lambda.amazonaws.com"}, "Action": "sts:AssumeRole"}]
+        },
+        "Policies": [{
+          "PolicyName": "WatchdogLeastPrivilege",
+          "PolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Sid": "FindInstances",
+                "Effect": "Allow",
+                "Action": "ec2:DescribeInstances",
+                "Resource": "*"
+              },
+              {
+                "Sid": "TerminateOnlyThePilotInstance",
+                "Effect": "Allow",
+                "Action": "ec2:TerminateInstances",
+                "Resource": {"Fn::Sub": "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*"},
+                "Condition": {"StringEquals": {"ec2:ResourceTag/siteproof:pilot-run-id": {"Ref": "PilotRunId"}}}
+              },
+              {
+                "Sid": "JournalOwnRunOnly",
+                "Effect": "Allow",
+                "Action": ["dynamodb:GetItem", "dynamodb:UpdateItem"],
+                "Resource": {"Fn::GetAtt": ["ControlTable", "Arn"]},
+                "Condition": {"ForAllValues:StringEquals": {"dynamodb:LeadingKeys": [{"Fn::Sub": "PILOT#${PilotRunId}"}]}}
+              },
+              {
+                "Sid": "WriteOwnLogStreamsOnly",
+                "Effect": "Allow",
+                "Action": ["logs:CreateLogStream", "logs:PutLogEvents"],
+                "Resource": {"Fn::GetAtt": ["WatchdogLogGroup", "Arn"]}
+              }
+            ]
+          }
+        }],
+        "Tags": [{"Key": "Project", "Value": "SiteProof"}, {"Key": "Component", "Value": "AWS-C"}]
+      }
+    },
+    "WatchdogFunction": {
+      "Type": "AWS::Lambda::Function",
+      "DependsOn": "WatchdogLogGroup",
+      "Properties": {
+        "FunctionName": {"Fn::Sub": "${AWS::StackName}-watchdog"},
+        "Description": "SiteProof AWS-C: terminate the single tagged pilot instance at the fixed deadline. DynamoDB-independent.",
+        "Runtime": {"Ref": "LambdaRuntime"},
+        "Architectures": ["arm64"],
+        "Handler": "src.aws_c.watchdog.lambda_handler",
+        "Role": {"Fn::GetAtt": ["WatchdogRole", "Arn"]},
+        "Code": {"S3Bucket": {"Ref": "CodeBucket"}, "S3Key": {"Ref": "LambdaCodeKey"}, "S3ObjectVersion": {"Ref": "LambdaCodeObjectVersion"}},
+        "Timeout": 60,
+        "MemorySize": 256,
+        "Environment": {
+          "Variables": {
+            "PILOT_RUN_ID": {"Ref": "PilotRunId"},
+            "HARD_DEADLINE_UTC": {"Ref": "HardDeadlineUtc"},
+            "TABLE_NAME": {"Ref": "ControlTable"}
+          }
+        },
+        "Tags": [{"Key": "Project", "Value": "SiteProof"}, {"Key": "Component", "Value": "AWS-C"}]
+      }
+    },
+    "WatchdogAsyncConfig": {
+      "Type": "AWS::Lambda::EventInvokeConfig",
+      "Properties": {
+        "FunctionName": {"Ref": "WatchdogFunction"},
+        "Qualifier": "$LATEST",
+        "MaximumRetryAttempts": 2,
+        "MaximumEventAgeInSeconds": 3600
+      }
+    },
+    "WatchdogSchedulerRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [{
+            "Effect": "Allow",
+            "Principal": {"Service": "scheduler.amazonaws.com"},
+            "Action": "sts:AssumeRole",
+            "Condition": {"StringEquals": {"aws:SourceAccount": {"Ref": "AWS::AccountId"}}}
+          }]
+        },
+        "Policies": [{
+          "PolicyName": "InvokeWatchdogOnly",
+          "PolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [{"Sid": "InvokeWatchdogOnly", "Effect": "Allow", "Action": "lambda:InvokeFunction", "Resource": {"Fn::GetAtt": ["WatchdogFunction", "Arn"]}}]
+          }
+        }],
+        "Tags": [{"Key": "Project", "Value": "SiteProof"}, {"Key": "Component", "Value": "AWS-C"}]
+      }
+    },
+    "WatchdogDeadlineSchedule": {
+      "Type": "AWS::Scheduler::Schedule",
+      "DependsOn": "WatchdogAsyncConfig",
+      "Properties": {
+        "Description": "One-time invocation exactly at the hard deadline.",
+        "ScheduleExpression": {"Fn::Join": ["", ["at(", {"Fn::Select": [0, {"Fn::Split": ["Z", {"Ref": "HardDeadlineUtc"}]}]}, ")"]]},
+        "ScheduleExpressionTimezone": "UTC",
+        "State": "ENABLED",
+        "FlexibleTimeWindow": {"Mode": "OFF"},
+        "Target": {
+          "Arn": {"Fn::GetAtt": ["WatchdogFunction", "Arn"]},
+          "RoleArn": {"Fn::GetAtt": ["WatchdogSchedulerRole", "Arn"]},
+          "Input": "{\"source\":\"deadline\"}",
+          "RetryPolicy": {"MaximumRetryAttempts": 10, "MaximumEventAgeInSeconds": 3600}
+        }
+      }
+    },
+    "WatchdogPeriodicSchedule": {
+      "Type": "AWS::Scheduler::Schedule",
+      "DependsOn": "WatchdogAsyncConfig",
+      "Properties": {
+        "Description": "Heartbeat before the deadline; repeats termination and verification after it. Bounded by GuardEndAt.",
+        "ScheduleExpression": "rate(5 minutes)",
+        "ScheduleExpressionTimezone": "UTC",
+        "State": "ENABLED",
+        "EndDate": {"Fn::Join": ["", [{"Fn::Select": [0, {"Fn::Split": ["Z", {"Ref": "GuardEndAt"}]}]}, ".000Z"]]},
+        "FlexibleTimeWindow": {"Mode": "OFF"},
+        "Target": {
+          "Arn": {"Fn::GetAtt": ["WatchdogFunction", "Arn"]},
+          "RoleArn": {"Fn::GetAtt": ["WatchdogSchedulerRole", "Arn"]},
+          "Input": "{\"source\":\"periodic\"}",
+          "RetryPolicy": {"MaximumRetryAttempts": 2, "MaximumEventAgeInSeconds": 300}
+        }
+      }
+    },
+    "ControllerLogGroup": {
+      "Type": "AWS::Logs::LogGroup",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "LogGroupName": {"Fn::Sub": "/aws/lambda/${AWS::StackName}-controller"},
+        "RetentionInDays": {"Ref": "LogRetentionDays"}
+      }
+    },
+    "ControllerRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [{"Effect": "Allow", "Principal": {"Service": "lambda.amazonaws.com"}, "Action": "sts:AssumeRole"}]
+        },
+        "Policies": [{
+          "PolicyName": "ControllerLeastPrivilege",
+          "PolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Sid": "ReserveAndReadOwnRunOnly",
+                "Effect": "Allow",
+                "Action": ["dynamodb:PutItem", "dynamodb:GetItem"],
+                "Resource": {"Fn::GetAtt": ["ControlTable", "Arn"]},
+                "Condition": {"ForAllValues:StringEquals": {"dynamodb:LeadingKeys": ["SLOT", {"Fn::Sub": "PILOT#${PilotRunId}"}]}}
+              },
+              {
+                "Sid": "WriteOwnLogStreamsOnly",
+                "Effect": "Allow",
+                "Action": ["logs:CreateLogStream", "logs:PutLogEvents"],
+                "Resource": {"Fn::GetAtt": ["ControllerLogGroup", "Arn"]}
+              }
+            ]
+          }
+        }],
+        "Tags": [{"Key": "Project", "Value": "SiteProof"}, {"Key": "Component", "Value": "AWS-C"}]
+      }
+    },
+    "ControllerFunction": {
+      "Type": "AWS::Lambda::Function",
+      "DependsOn": "ControllerLogGroup",
+      "Properties": {
+        "FunctionName": {"Fn::Sub": "${AWS::StackName}-controller"},
+        "Description": "SiteProof AWS-C: reserve the single pilot run and report its recorded state. No EC2 permission.",
+        "Runtime": {"Ref": "LambdaRuntime"},
+        "Architectures": ["arm64"],
+        "Handler": "src.aws_c.controller.lambda_handler",
+        "Role": {"Fn::GetAtt": ["ControllerRole", "Arn"]},
+        "Code": {"S3Bucket": {"Ref": "CodeBucket"}, "S3Key": {"Ref": "LambdaCodeKey"}, "S3ObjectVersion": {"Ref": "LambdaCodeObjectVersion"}},
+        "Timeout": 15,
+        "MemorySize": 256,
+        "Environment": {
+          "Variables": {
+            "PILOT_RUN_ID": {"Ref": "PilotRunId"},
+            "HARD_DEADLINE_UTC": {"Ref": "HardDeadlineUtc"},
+            "TABLE_NAME": {"Ref": "ControlTable"}
+          }
+        },
+        "Tags": [{"Key": "Project", "Value": "SiteProof"}, {"Key": "Component", "Value": "AWS-C"}]
+      }
+    },
+    "WatchdogAttentionAlarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmDescription": "Watchdog needs a human: ambiguous target, no target after the deadline, describe failure or uncertain termination.",
+        "Namespace": "SiteProof/Pilot",
+        "MetricName": "WatchdogAttention",
+        "Dimensions": [{"Name": "PilotRunId", "Value": {"Ref": "PilotRunId"}}],
+        "Statistic": "Sum",
+        "Period": 300,
+        "EvaluationPeriods": 1,
+        "Threshold": 1,
+        "ComparisonOperator": "GreaterThanOrEqualToThreshold",
+        "TreatMissingData": "notBreaching",
+        "AlarmActions": [{"Ref": "AlertTopicArn"}]
+      }
+    },
+    "WatchdogSilentAlarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmDescription": "The watchdog has not reported for 15 minutes. Do not create or keep an instance while this alarm is active.",
+        "Namespace": "SiteProof/Pilot",
+        "MetricName": "WatchdogRun",
+        "Dimensions": [{"Name": "PilotRunId", "Value": {"Ref": "PilotRunId"}}],
+        "Statistic": "Sum",
+        "Period": 300,
+        "EvaluationPeriods": 3,
+        "Threshold": 1,
+        "ComparisonOperator": "LessThanThreshold",
+        "TreatMissingData": "breaching",
+        "AlarmActions": [{"Ref": "AlertTopicArn"}],
+        "OKActions": [{"Ref": "AlertTopicArn"}]
+      }
+    },
+    "WatchdogErrorAlarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmDescription": "Unhandled watchdog error or timeout.",
+        "Namespace": "AWS/Lambda",
+        "MetricName": "Errors",
+        "Dimensions": [{"Name": "FunctionName", "Value": {"Ref": "WatchdogFunction"}}],
+        "Statistic": "Sum",
+        "Period": 300,
+        "EvaluationPeriods": 1,
+        "Threshold": 1,
+        "ComparisonOperator": "GreaterThanOrEqualToThreshold",
+        "TreatMissingData": "notBreaching",
+        "AlarmActions": [{"Ref": "AlertTopicArn"}]
+      }
+    }
+  },
+  "Outputs": {
+    "EvidenceBucketName": {"Description": "Write-once evidence bucket. RETAINED on stack deletion.", "Value": {"Ref": "EvidenceBucket"}},
+    "ControlTableName": {"Description": "Control journal. RETAINED on stack deletion.", "Value": {"Ref": "ControlTable"}},
+    "WorkerInstanceProfileName": {"Description": "Instance profile for the single worker instance.", "Value": {"Ref": "WorkerInstanceProfile"}},
+    "ControllerFunctionName": {"Description": "Reserve/status only.", "Value": {"Ref": "ControllerFunction"}},
+    "WatchdogFunctionName": {"Description": "Deadline terminator.", "Value": {"Ref": "WatchdogFunction"}},
+    "SigningKeyId": {"Condition": "KmsEnabled", "Description": "Run-manifest signing key (CANDIDATE).", "Value": {"Ref": "SigningKey"}}
+  }
+}

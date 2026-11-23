@@ -1,0 +1,153 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "SiteProof static public web CANDIDATE. OFFLINE ONLY; AWS LIVE NO-GO. AWS service validation and official specification final review NOT RUN.",
+  "Metadata": {
+    "ReviewStatus": "OFFLINE_CANDIDATE_NOT_AWS_VALIDATED",
+    "SafetyGate": "AWS LIVE NO-GO",
+    "Scope": "Static frontend only; does not adopt or provision ARCH-LEAN Pilot",
+    "ApprovedObjectKeys": ["home/index.html", "home/styles.css", "home/app.js", "compare/index.html", "compare/styles.css", "compare/app.js"],
+    "LoggingStatus": "Access logging and alert delivery NOT CONFIGURED; separate live approval gate",
+    "PriceStatus": "No numeric estimate or enforced billing cap"
+  },
+  "Parameters": {
+    "PublishEnabled": {
+      "Type": "String",
+      "Default": "false",
+      "AllowedValues": ["false", "true"],
+      "Description": "Candidate defaults DISABLED. true is configuration, never USER authorization. Read deploy_gate.md before any AWS action."
+    }
+  },
+  "Conditions": {
+    "PublicationEnabled": {"Fn::Equals": [{"Ref": "PublishEnabled"}, "true"]}
+  },
+  "Resources": {
+    "AssetsBucket": {
+      "Type": "AWS::S3::Bucket",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "PublicAccessBlockConfiguration": {"BlockPublicAcls": true, "IgnorePublicAcls": true, "BlockPublicPolicy": true, "RestrictPublicBuckets": true},
+        "OwnershipControls": {"Rules": [{"ObjectOwnership": "BucketOwnerEnforced"}]},
+        "BucketEncryption": {"ServerSideEncryptionConfiguration": [{"ServerSideEncryptionByDefault": {"SSEAlgorithm": "AES256"}}]},
+        "VersioningConfiguration": {"Status": "Enabled"},
+        "Tags": [{"Key": "Project", "Value": "SiteProof"}, {"Key": "Purpose", "Value": "PublicStaticAssetsOnly"}]
+      }
+    },
+    "OriginAccess": {
+      "Type": "AWS::CloudFront::OriginAccessControl",
+      "Properties": {
+        "OriginAccessControlConfig": {
+          "Name": {"Fn::Join": ["-", ["siteproof-oac", {"Fn::Select": [2, {"Fn::Split": ["/", {"Ref": "AWS::StackId"}]}]}]]},
+          "Description": "Signed read-only access to the private static asset origin",
+          "OriginAccessControlOriginType": "s3",
+          "SigningBehavior": "always",
+          "SigningProtocol": "sigv4"
+        }
+      }
+    },
+    "WebCachePolicy": {
+      "Type": "AWS::CloudFront::CachePolicy",
+      "Properties": {
+        "CachePolicyConfig": {
+          "Name": {"Fn::Join": ["-", ["siteproof-cache", {"Fn::Select": [2, {"Fn::Split": ["/", {"Ref": "AWS::StackId"}]}]}]]},
+          "MinTTL": 0,
+          "DefaultTTL": 60,
+          "MaxTTL": 300,
+          "ParametersInCacheKeyAndForwardedToOrigin": {
+            "EnableAcceptEncodingBrotli": true,
+            "EnableAcceptEncodingGzip": true,
+            "CookiesConfig": {"CookieBehavior": "none"},
+            "HeadersConfig": {"HeaderBehavior": "none"},
+            "QueryStringsConfig": {"QueryStringBehavior": "none"}
+          }
+        }
+      }
+    },
+    "WebHeadersPolicy": {
+      "Type": "AWS::CloudFront::ResponseHeadersPolicy",
+      "Properties": {
+        "ResponseHeadersPolicyConfig": {
+          "Name": {"Fn::Join": ["-", ["siteproof-headers", {"Fn::Select": [2, {"Fn::Split": ["/", {"Ref": "AWS::StackId"}]}]}]]},
+          "SecurityHeadersConfig": {
+            "ContentTypeOptions": {"Override": true},
+            "FrameOptions": {"FrameOption": "DENY", "Override": true},
+            "ReferrerPolicy": {"ReferrerPolicy": "no-referrer", "Override": true},
+            "StrictTransportSecurity": {"AccessControlMaxAgeSec": 31536000, "IncludeSubdomains": false, "Preload": false, "Override": true},
+            "ContentSecurityPolicy": {"ContentSecurityPolicy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'", "Override": true}
+          },
+          "CustomHeadersConfig": {
+            "Items": [{"Header": "Permissions-Policy", "Value": "camera=(), microphone=(), geolocation=()", "Override": true}, {"Header": "Cross-Origin-Resource-Policy", "Value": "same-origin", "Override": true}]
+          }
+        }
+      }
+    },
+    "RootRedirect": {
+      "Type": "AWS::CloudFront::Function",
+      "Properties": {
+        "Name": {"Fn::Join": ["-", ["siteproof-root", {"Fn::Select": [2, {"Fn::Split": ["/", {"Ref": "AWS::StackId"}]}]}]]},
+        "AutoPublish": true,
+        "FunctionConfig": {"Comment": "Canonical HOME URL; candidate only, no backend or Pilot", "Runtime": "cloudfront-js-2.0"},
+        "FunctionCode": "function handler(event) { var request = event.request; if (request.uri === '/') { return { statusCode: 302, statusDescription: 'Found', headers: { location: { value: '/home/index.html' }, 'cache-control': { value: 'no-store' } } }; } return request; }"
+      }
+    },
+    "Distribution": {
+      "Type": "AWS::CloudFront::Distribution",
+      "DeletionPolicy": "Delete",
+      "UpdateReplacePolicy": "Delete",
+      "Properties": {
+        "DistributionConfig": {
+          "Enabled": {"Fn::If": ["PublicationEnabled", true, false]},
+          "Comment": "SiteProof static frontend candidate; default disabled; no capture/API/Pilot",
+          "DefaultRootObject": "home/index.html",
+          "HttpVersion": "http2",
+          "IPV6Enabled": true,
+          "PriceClass": "PriceClass_100",
+          "ViewerCertificate": {"CloudFrontDefaultCertificate": true},
+          "Origins": [{"Id": "PrivateAssets", "DomainName": {"Fn::GetAtt": ["AssetsBucket", "RegionalDomainName"]}, "OriginAccessControlId": {"Ref": "OriginAccess"}, "S3OriginConfig": {"OriginAccessIdentity": ""}}],
+          "DefaultCacheBehavior": {
+            "TargetOriginId": "PrivateAssets",
+            "ViewerProtocolPolicy": "redirect-to-https",
+            "AllowedMethods": ["GET", "HEAD"],
+            "CachedMethods": ["GET", "HEAD"],
+            "Compress": true,
+            "CachePolicyId": {"Ref": "WebCachePolicy"},
+            "ResponseHeadersPolicyId": {"Ref": "WebHeadersPolicy"},
+            "FunctionAssociations": [{"EventType": "viewer-request", "FunctionARN": {"Fn::GetAtt": ["RootRedirect", "FunctionARN"]}}]
+          }
+        }
+      }
+    },
+    "AssetsPolicy": {
+      "Type": "AWS::S3::BucketPolicy",
+      "Properties": {
+        "Bucket": {"Ref": "AssetsBucket"},
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "CloudFrontReadApprovedAssetsOnly",
+              "Effect": "Allow",
+              "Principal": {"Service": "cloudfront.amazonaws.com"},
+              "Action": "s3:GetObject",
+              "Resource": [{"Fn::Sub": "${AssetsBucket.Arn}/home/index.html"}, {"Fn::Sub": "${AssetsBucket.Arn}/home/styles.css"}, {"Fn::Sub": "${AssetsBucket.Arn}/home/app.js"}, {"Fn::Sub": "${AssetsBucket.Arn}/compare/index.html"}, {"Fn::Sub": "${AssetsBucket.Arn}/compare/styles.css"}, {"Fn::Sub": "${AssetsBucket.Arn}/compare/app.js"}],
+              "Condition": {"StringEquals": {"AWS:SourceArn": {"Fn::Sub": "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${Distribution}"}}}
+            },
+            {
+              "Sid": "DenyInsecureTransport",
+              "Effect": "Deny",
+              "Principal": "*",
+              "Action": "s3:*",
+              "Resource": [{"Fn::GetAtt": ["AssetsBucket", "Arn"]}, {"Fn::Sub": "${AssetsBucket.Arn}/*"}],
+              "Condition": {"Bool": {"aws:SecureTransport": "false"}}
+            }
+          ]
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "AssetBucketName": {"Description": "Private, versioned, RETAINED asset bucket. Not a website endpoint.", "Value": {"Ref": "AssetsBucket"}},
+    "DistributionId": {"Description": "Candidate distribution ID, not a deployment approval or availability observation.", "Value": {"Ref": "Distribution"}},
+    "CandidateDomain": {"Description": "Default-disabled candidate domain. No LIVE or Visual PASS is implied.", "Value": {"Fn::GetAtt": ["Distribution", "DomainName"]}}
+  }
+}

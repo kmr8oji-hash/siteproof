@@ -1,0 +1,104 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "SiteProof AWS-B Lite heartbeat alarm CANDIDATE (one alarm over the ProbeCompleted metric of all pages). OFFLINE CANDIDATE / AWS LIVE NOT VERIFIED / AWS-B LIVE NO-GO. AWS has not accepted this template.",
+  "Metadata": {
+    "ReviewStatus": "OFFLINE_CANDIDATE_AWS_LIVE_NOT_VERIFIED",
+    "SafetyGate": "AWS-B LIVE NO-GO until separate USER approval",
+    "Purpose": "Detects monitoring that did not run: any page whose probe did not store its result and send its notifications emits no ProbeCompleted datapoint. Lambda Invocations are deliberately not used.",
+    "Evaluation": "Period = schedule interval, Sum < ExpectedPages, 2 of 3 periods, missing data = breaching. Each heartbeat is stamped with its scheduled slot, so one period holds one datapoint per page. One isolated missed run is tolerated; two consecutive missed runs (or total silence) alarm. Whether CloudWatch evaluates this as modelled is LIVE-unverified.",
+    "PlannedStop": "This alarm cannot know about a planned stop. GROUP stop (every page, same end): disable its actions (AlarmActionsEnabled=false, the stopper's HeartbeatAlarmName, or DisableAlarmActions). PAGE stop (one page): do not disable it, lower ExpectedPages by one instead. Residual: a page whose schedule phase is changed can briefly send two datapoints in one period and mask another page's missing one.",
+    "Cost": "One custom metric (ProbeCompleted) and one standard alarm metric. No per-page metric or alarm."
+  },
+  "Parameters": {
+    "AlertTopicArn": {
+      "Type": "String",
+      "AllowedPattern": "^arn:aws[a-z-]*:sns:[a-z0-9-]+:[0-9]{12}:[A-Za-z0-9_-]{1,256}$",
+      "Description": "Existing SNS topic. Its policy must allow cloudwatch.amazonaws.com to publish."
+    },
+    "MonitorGroup": {
+      "Type": "String",
+      "Default": "siteproof-b",
+      "AllowedPattern": "^[A-Za-z0-9._-]{1,64}$",
+      "Description": "Must equal the MonitorGroup parameter of every probe stack."
+    },
+    "ExpectedPages": {
+      "Type": "Number",
+      "Default": 5,
+      "MinValue": 1,
+      "MaxValue": 20,
+      "Description": "Number of probe stacks sending the heartbeat. Fewer datapoints than this in one period count as breaching. Lower it (stack update) when ONE page is stopped for good; leaving it makes the alarm fire until the page returns."
+    },
+    "HeartbeatPeriodSeconds": {
+      "Type": "Number",
+      "Default": 21600,
+      "AllowedValues": [
+        900,
+        21600,
+        43200
+      ],
+      "Description": "Must equal the probe schedule interval: 21600 for rate(6 hours), 43200 for rate(12 hours). 900 (rate(15 minutes)) exists only so a short LIVE trial can exercise the same alarm in under an hour; it is not a product setting."
+    },
+    "AlarmActionsEnabled": {
+      "Type": "String",
+      "Default": "true",
+      "AllowedValues": [
+        "true",
+        "false"
+      ],
+      "Description": "false at a planned stop so the silence that follows is not mailed as a failure."
+    }
+  },
+  "Resources": {
+    "HeartbeatAlarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmName": {
+          "Fn::Sub": "${AWS::StackName}-heartbeat"
+        },
+        "AlarmDescription": "SiteProof monitoring did not run for at least one page (fewer ProbeCompleted heartbeats than expected in 2 of the last 3 schedule intervals). Not proof of a site failure. A planned stop alarms until actions are disabled.",
+        "Namespace": "SiteProof/Monitor",
+        "MetricName": "ProbeCompleted",
+        "Dimensions": [
+          {
+            "Name": "MonitorGroup",
+            "Value": {
+              "Ref": "MonitorGroup"
+            }
+          }
+        ],
+        "Statistic": "Sum",
+        "Period": {
+          "Ref": "HeartbeatPeriodSeconds"
+        },
+        "EvaluationPeriods": 3,
+        "DatapointsToAlarm": 2,
+        "Threshold": {
+          "Ref": "ExpectedPages"
+        },
+        "ComparisonOperator": "LessThanThreshold",
+        "TreatMissingData": "breaching",
+        "ActionsEnabled": {
+          "Ref": "AlarmActionsEnabled"
+        },
+        "AlarmActions": [
+          {
+            "Ref": "AlertTopicArn"
+          }
+        ],
+        "OKActions": [
+          {
+            "Ref": "AlertTopicArn"
+          }
+        ]
+      }
+    }
+  },
+  "Outputs": {
+    "HeartbeatAlarmName": {
+      "Description": "Alarm to disable at a planned stop; pass it to the stopper as HeartbeatAlarmName.",
+      "Value": {
+        "Ref": "HeartbeatAlarm"
+      }
+    }
+  }
+}

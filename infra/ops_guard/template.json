@@ -1,0 +1,229 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "SiteProof operations guard CANDIDATE (SNS, Budgets, CloudWatch alarms, optional CloudTrail). OFFLINE CANDIDATE / AWS LIVE NOT VERIFIED. AWS has not accepted this template.",
+  "Metadata": {
+    "ReviewStatus": "OFFLINE_CANDIDATE_AWS_LIVE_NOT_VERIFIED",
+    "RegionRequirement": "Deploy in us-east-1 ONLY: CloudFront metrics (AWS/CloudFront, Region=Global) are published in us-east-1.",
+    "ThresholdStatus": "Alarm thresholds and budget default are CANDIDATE values, not approved values.",
+    "BudgetSemantics": "A budget is a notification, not a spending cap and not a stop mechanism. No budget actions are defined.",
+    "Isolation": "Does not import, reference or modify the AWS-A public_web stack. The distribution id is a plain String parameter."
+  },
+  "Parameters": {
+    "NotificationEmail": {
+      "Type": "String",
+      "Description": "Email address for alerts. The subscription must be confirmed manually by clicking the link in the confirmation email."
+    },
+    "MonthlyBudgetUsd": {
+      "Type": "Number",
+      "Default": 5,
+      "MinValue": 1,
+      "MaxValue": 50,
+      "Description": "Candidate monthly cost budget in USD (notification only)."
+    },
+    "PublicDistributionId": {
+      "Type": "String",
+      "AllowedPattern": "^E[A-Z0-9]{5,20}$",
+      "Description": "Existing CloudFront distribution id of AWS-A (plain string; no cross-stack import)."
+    },
+    "EnableTrail": {
+      "Type": "String",
+      "Default": "false",
+      "AllowedValues": ["false", "true"],
+      "Description": "true creates a management-events-only CloudTrail trail and a retained S3 bucket. Check for an existing org/account trail first."
+    }
+  },
+  "Conditions": {
+    "TrailEnabled": {"Fn::Equals": [{"Ref": "EnableTrail"}, "true"]}
+  },
+  "Resources": {
+    "AlertTopic": {
+      "Type": "AWS::SNS::Topic",
+      "Properties": {
+        "Tags": [{"Key": "Project", "Value": "SiteProof"}]
+      }
+    },
+    "AlertTopicPolicy": {
+      "Type": "AWS::SNS::TopicPolicy",
+      "Properties": {
+        "Topics": [{"Ref": "AlertTopic"}],
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "AllowCloudWatchPublish",
+              "Effect": "Allow",
+              "Principal": {"Service": "cloudwatch.amazonaws.com"},
+              "Action": "sns:Publish",
+              "Resource": {"Ref": "AlertTopic"},
+              "Condition": {"StringEquals": {"aws:SourceAccount": {"Ref": "AWS::AccountId"}}}
+            },
+            {
+              "Sid": "AllowBudgetsPublish",
+              "Effect": "Allow",
+              "Principal": {"Service": "budgets.amazonaws.com"},
+              "Action": "sns:Publish",
+              "Resource": {"Ref": "AlertTopic"},
+              "Condition": {"StringEquals": {"aws:SourceAccount": {"Ref": "AWS::AccountId"}}}
+            }
+          ]
+        }
+      }
+    },
+    "AlertEmail": {
+      "Type": "AWS::SNS::Subscription",
+      "Properties": {
+        "TopicArn": {"Ref": "AlertTopic"},
+        "Protocol": "email",
+        "Endpoint": {"Ref": "NotificationEmail"}
+      }
+    },
+    "CostBudget": {
+      "Type": "AWS::Budgets::Budget",
+      "DependsOn": "AlertTopicPolicy",
+      "Properties": {
+        "Budget": {
+          "BudgetType": "COST",
+          "TimeUnit": "MONTHLY",
+          "BudgetLimit": {"Amount": {"Ref": "MonthlyBudgetUsd"}, "Unit": "USD"}
+        },
+        "NotificationsWithSubscribers": [
+          {
+            "Notification": {"NotificationType": "ACTUAL", "ComparisonOperator": "GREATER_THAN", "Threshold": 80, "ThresholdType": "PERCENTAGE"},
+            "Subscribers": [{"SubscriptionType": "SNS", "Address": {"Ref": "AlertTopic"}}]
+          },
+          {
+            "Notification": {"NotificationType": "FORECASTED", "ComparisonOperator": "GREATER_THAN", "Threshold": 100, "ThresholdType": "PERCENTAGE"},
+            "Subscribers": [{"SubscriptionType": "SNS", "Address": {"Ref": "AlertTopic"}}]
+          }
+        ]
+      }
+    },
+    "RequestsAlarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmDescription": "CANDIDATE threshold (not approved): CloudFront Requests Sum per 5 min.",
+        "Namespace": "AWS/CloudFront",
+        "MetricName": "Requests",
+        "Dimensions": [
+          {"Name": "DistributionId", "Value": {"Ref": "PublicDistributionId"}},
+          {"Name": "Region", "Value": "Global"}
+        ],
+        "Statistic": "Sum",
+        "Period": 300,
+        "EvaluationPeriods": 1,
+        "Threshold": 1000,
+        "ComparisonOperator": "GreaterThanThreshold",
+        "TreatMissingData": "notBreaching",
+        "AlarmActions": [{"Ref": "AlertTopic"}],
+        "OKActions": [{"Ref": "AlertTopic"}]
+      }
+    },
+    "BytesAlarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmDescription": "CANDIDATE threshold (not approved): CloudFront BytesDownloaded Sum per day (1 GiB).",
+        "Namespace": "AWS/CloudFront",
+        "MetricName": "BytesDownloaded",
+        "Dimensions": [
+          {"Name": "DistributionId", "Value": {"Ref": "PublicDistributionId"}},
+          {"Name": "Region", "Value": "Global"}
+        ],
+        "Statistic": "Sum",
+        "Period": 86400,
+        "EvaluationPeriods": 1,
+        "Threshold": 1073741824,
+        "ComparisonOperator": "GreaterThanThreshold",
+        "TreatMissingData": "notBreaching",
+        "AlarmActions": [{"Ref": "AlertTopic"}],
+        "OKActions": [{"Ref": "AlertTopic"}]
+      }
+    },
+    "ErrorRateAlarm": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmDescription": "CANDIDATE threshold (not approved): CloudFront 5xxErrorRate Average percent per 5 min.",
+        "Namespace": "AWS/CloudFront",
+        "MetricName": "5xxErrorRate",
+        "Dimensions": [
+          {"Name": "DistributionId", "Value": {"Ref": "PublicDistributionId"}},
+          {"Name": "Region", "Value": "Global"}
+        ],
+        "Statistic": "Average",
+        "Period": 300,
+        "EvaluationPeriods": 1,
+        "Threshold": 5,
+        "ComparisonOperator": "GreaterThanThreshold",
+        "TreatMissingData": "notBreaching",
+        "AlarmActions": [{"Ref": "AlertTopic"}],
+        "OKActions": [{"Ref": "AlertTopic"}]
+      }
+    },
+    "TrailBucket": {
+      "Type": "AWS::S3::Bucket",
+      "Condition": "TrailEnabled",
+      "DeletionPolicy": "Retain",
+      "UpdateReplacePolicy": "Retain",
+      "Properties": {
+        "PublicAccessBlockConfiguration": {"BlockPublicAcls": true, "IgnorePublicAcls": true, "BlockPublicPolicy": true, "RestrictPublicBuckets": true},
+        "OwnershipControls": {"Rules": [{"ObjectOwnership": "BucketOwnerEnforced"}]},
+        "BucketEncryption": {"ServerSideEncryptionConfiguration": [{"ServerSideEncryptionByDefault": {"SSEAlgorithm": "AES256"}}]},
+        "LifecycleConfiguration": {"Rules": [{"Id": "ExpireTrailLogs90d", "Status": "Enabled", "ExpirationInDays": 90}]},
+        "Tags": [{"Key": "Project", "Value": "SiteProof"}]
+      }
+    },
+    "TrailBucketPolicy": {
+      "Type": "AWS::S3::BucketPolicy",
+      "Condition": "TrailEnabled",
+      "Properties": {
+        "Bucket": {"Ref": "TrailBucket"},
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "AllowTrailGetBucketAcl",
+              "Effect": "Allow",
+              "Principal": {"Service": "cloudtrail.amazonaws.com"},
+              "Action": "s3:GetBucketAcl",
+              "Resource": {"Fn::GetAtt": ["TrailBucket", "Arn"]},
+              "Condition": {"StringEquals": {"aws:SourceArn": {"Fn::Sub": "arn:${AWS::Partition}:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/siteproof-ops-guard-trail"}}}
+            },
+            {
+              "Sid": "AllowTrailPutObject",
+              "Effect": "Allow",
+              "Principal": {"Service": "cloudtrail.amazonaws.com"},
+              "Action": "s3:PutObject",
+              "Resource": {"Fn::Sub": "${TrailBucket.Arn}/AWSLogs/${AWS::AccountId}/*"},
+              "Condition": {"StringEquals": {"aws:SourceArn": {"Fn::Sub": "arn:${AWS::Partition}:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/siteproof-ops-guard-trail"}}}
+            },
+            {
+              "Sid": "DenyInsecureTransport",
+              "Effect": "Deny",
+              "Principal": "*",
+              "Action": "s3:*",
+              "Resource": [{"Fn::GetAtt": ["TrailBucket", "Arn"]}, {"Fn::Sub": "${TrailBucket.Arn}/*"}],
+              "Condition": {"Bool": {"aws:SecureTransport": "false"}}
+            }
+          ]
+        }
+      }
+    },
+    "Trail": {
+      "Type": "AWS::CloudTrail::Trail",
+      "Condition": "TrailEnabled",
+      "DependsOn": "TrailBucketPolicy",
+      "Properties": {
+        "TrailName": "siteproof-ops-guard-trail",
+        "S3BucketName": {"Ref": "TrailBucket"},
+        "IsLogging": true,
+        "IsMultiRegionTrail": true,
+        "IncludeGlobalServiceEvents": true,
+        "EnableLogFileValidation": true,
+        "Tags": [{"Key": "Project", "Value": "SiteProof"}]
+      }
+    }
+  },
+  "Outputs": {
+    "AlertTopicArn": {"Description": "SNS topic ARN for alerts.", "Value": {"Ref": "AlertTopic"}},
+    "BudgetName": {"Description": "Generated budget name.", "Value": {"Ref": "CostBudget"}}
+  }
+}

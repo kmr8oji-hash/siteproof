@@ -1,0 +1,59 @@
+{
+  "schema": "siteproof.capture-plan.v1",
+  "sites": [
+    {
+      "site_id": "ttn",
+      "pages": [
+        {
+          "page_id": "ttn-home",
+          "role": "PRIMARY",
+          "label": "トップページ",
+          "path": "/",
+          "profiles": [
+            {"kind": "Desktop", "width": 1440, "height": 900, "full_page": true},
+            {"kind": "Mobile", "width": 390, "height": 844, "full_page": true}
+          ],
+          "real_capture": "NOT_APPROVED",
+          "stability": {"settle_ms": 300, "interval_ms": 400, "required_identical": 3, "min_span_ms": 800, "max_attempts": 6, "max_total_ms": 4500},
+          "why": "全機能（交通・防災・天気・公式情報・トレンド・TTNで調べる・道路・停電）の入口カードと重要情報の表示がここに集まります。最初の表示領域だけでは下半分のカードとフッターが写らないため、ページ全体を撮影します。"
+        },
+        {
+          "page_id": "ttn-disaster",
+          "role": "FEATURE_CANDIDATE",
+          "label": "防災（主要機能）",
+          "path": "/",
+          "entry": "トップページの「防災」カードを1回押した画面（URLは / のまま変わりません）",
+          "profiles": [
+            {"kind": "Desktop", "width": 1440, "height": 900, "full_page": true},
+            {"kind": "Mobile", "width": 390, "height": 844, "full_page": true}
+          ],
+          "real_capture": "NOT_CAPTURABLE",
+          "blocker": "TTNの画面切り替えはURLを変えないため、URLを開くだけの現在の撮影ランタイムでは撮影できません。「1回押す」操作を許可リスト方式で撮影手順に追加する必要があります。",
+          "why": "TTNの目的（東京のトラブル時の確認先）の中心で、気象警報・地震・津波・避難所への入口があります。静的デモでは固定サンプルのため、撮影ごとの内容の揺れが小さい画面です。"
+        },
+        {
+          "page_id": "ttn-about",
+          "role": "SUPPLEMENTAL",
+          "label": "About（/about）",
+          "path": "/about",
+          "profiles": [
+            {"kind": "Desktop", "width": 1440, "height": 900, "full_page": false},
+            {"kind": "Mobile", "width": 390, "height": 844, "full_page": false}
+          ],
+          "real_capture": "CAPTURED_ONCE",
+          "why": "SP-D50の限定例外で2026-11-18に1回だけ撮影した補助ページです。文章中心で、表示領域のみの撮影です。"
+        }
+      ],
+      "stability": [
+        {"item": "「最終確認」などの日時", "handling": "静的デモは固定の日時（2026-09-22 14:02）を表示します。撮影ごとには変わりません。マスクはしません。"},
+        {"item": "固定フッターのアイコン（最初のページ全体撮影で一度だけ描き直される）", "handling": "最初のページ全体撮影の直後に、固定フッターのアイコンの縁が21ピクセルだけ描き直されます（時間経過では変わりません。2026-11-18の実撮影とローカルで確認）。撮影は時間を空けて繰り返し、最後の3枚が同じで0.8秒以上空いた場合だけを安定とします。最初の1枚は安定の判定に使いません。上限（6回・4.5秒）内に安定しなければ『撮影が安定していません』として判定不能にし、隠しません。"},
+        {"item": "15秒ごとの再描画（useNow）", "handling": "表示内容は固定デモのため変わりません。ローカルで20秒間（約150ミリ秒ごと）撮影しても画素は変わりませんでした。"},
+        {"item": "配色（OSのライト/ダーク設定に追従）", "handling": "撮影条件で配色をライトに固定します。"},
+        {"item": "Service Worker（初回に登録され、ページを読み込み直す）", "handling": "撮影条件でService Workerを無効にします（再読み込みによる撮影中の画面切り替えを防ぎます）。"},
+        {"item": "アニメーション・トランジション", "handling": "撮影時にアニメーションを止め、動きを減らす設定で撮影します。"},
+        {"item": "前回開いていた画面の復元", "handling": "撮影ごとに新しいブラウザ環境を使うため、毎回トップページから始まります。"},
+        {"item": "外部データ・広告・外部フォント", "handling": "静的デモは外部へ通信しません（同一オリジンの静的ファイルのみ）。読み込み失敗はブラウザ側の記録で検出し、判定不能にします。"}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,231 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "SiteProof AWS-C SINGLE-USE WORKER CANDIDATE (one EC2 instance, created once, never updated, terminated on OS shutdown). OFFLINE CANDIDATE / AWS LIVE NOT VERIFIED / AWS-C Worker Pilot NO-GO. AWS has not accepted this template.",
+  "Metadata": {
+    "ReviewStatus": "OFFLINE_CANDIDATE_AWS_LIVE_NOT_VERIFIED",
+    "SafetyGate": "AWS-C Worker Pilot NO-GO; C-02 DEFERRED / OPEN. Creating this stack starts billing and needs separate USER approval.",
+    "Lifecycle": "CREATE and DELETE only. Never update this stack: a property change can replace the instance, which is a second boot. Apply infra/aws_c/worker.stack-policy.json at creation.",
+    "Boot": "The instance boots exactly once, at creation. There is no start, restart or re-arm path; the control record refuses a second run.",
+    "Termination": "InstanceInitiatedShutdownBehavior=terminate with DeleteOnTermination volumes is an implementation CANDIDATE. LIVE use, EBS deletion and the number of attempts need separate USER approval.",
+    "Scope": "Controlled fixture only. Capturing a real owner-operated site is a later, separately approved step.",
+    "MachineImage": "ImageId must be a prepared image that already contains Docker and python3-boto3 (Python 3.11+). Nothing is installed at run time.",
+    "OpenItems": "IMDS hop limit with the Docker bridge, security-group-only egress (no hostname allowlist at the AWS layer), VPC DNS reachability from containers, root device name of the chosen image, burstable credit mode: all LIVE-unverified."
+  },
+  "Parameters": {
+    "PilotRunId": {
+      "Type": "String",
+      "AllowedPattern": "^[a-z0-9][a-z0-9-]{5,40}$",
+      "Description": "Must equal the guard stack's PilotRunId."
+    },
+    "HardDeadlineUtc": {
+      "Type": "String",
+      "AllowedPattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+      "Description": "Must equal the guard stack's HardDeadlineUtc."
+    },
+    "MaxRuntimeMinutes": {
+      "Type": "Number",
+      "Default": 45,
+      "MinValue": 20,
+      "MaxValue": 90,
+      "Description": "OS dead-man timer armed as the first boot command. Independent of every AWS API."
+    },
+    "ImageId": {
+      "Type": "AWS::EC2::Image::Id",
+      "Description": "Prepared machine image (see Metadata.MachineImage). No default."
+    },
+    "RootDeviceName": {
+      "Type": "String",
+      "Default": "/dev/sda1",
+      "AllowedValues": [
+        "/dev/sda1",
+        "/dev/xvda"
+      ]
+    },
+    "InstanceType": {
+      "Type": "String",
+      "Default": "t3.small",
+      "AllowedValues": [
+        "t3.small",
+        "t3.medium"
+      ]
+    },
+    "VpcId": {
+      "Type": "AWS::EC2::VPC::Id"
+    },
+    "SubnetId": {
+      "Type": "AWS::EC2::Subnet::Id",
+      "Description": "Public subnet. The instance has no inbound rule; it needs outbound HTTPS only."
+    },
+    "WorkerInstanceProfileName": {
+      "Type": "String",
+      "AllowedPattern": "^[A-Za-z0-9+=,.@_-]{1,128}$",
+      "Description": "Guard stack output. Proves the guard plane was deployed first."
+    },
+    "EvidenceBucketName": {
+      "Type": "String",
+      "AllowedPattern": "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
+    },
+    "ControlTableName": {
+      "Type": "String",
+      "AllowedPattern": "^[A-Za-z0-9_.-]{3,255}$"
+    },
+    "SigningKeyId": {
+      "Type": "String",
+      "Default": "",
+      "AllowedPattern": "^[A-Za-z0-9-]{0,64}$",
+      "Description": "Empty = run manifest is published UNSIGNED and says so."
+    },
+    "CodeBucket": {
+      "Type": "String",
+      "AllowedPattern": "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
+    },
+    "WorkerBundleKey": {
+      "Type": "String",
+      "AllowedPattern": "^[A-Za-z0-9._/-]{1,512}$"
+    },
+    "WorkerBundleObjectVersion": {
+      "Type": "String",
+      "AllowedPattern": "^[A-Za-z0-9._-]{1,1024}$"
+    },
+    "WorkerBundleSha256": {
+      "Type": "String",
+      "AllowedPattern": "^[0-9a-f]{64}$"
+    },
+    "EcrRegistry": {
+      "Type": "String",
+      "AllowedPattern": "^[0-9]{12}\\.dkr\\.ecr\\.[a-z0-9-]+\\.amazonaws\\.com$"
+    },
+    "EcrRepositoryName": {
+      "Type": "String",
+      "AllowedPattern": "^[a-z0-9._/-]{2,256}$"
+    },
+    "RuntimeImageDigest": {
+      "Type": "String",
+      "AllowedPattern": "^sha256:[0-9a-f]{64}$",
+      "Description": "The image is pulled by digest only, never by tag."
+    }
+  },
+  "Resources": {
+    "WorkerSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "SiteProof AWS-C worker: no inbound, outbound HTTPS only",
+        "VpcId": {
+          "Ref": "VpcId"
+        },
+        "SecurityGroupIngress": [],
+        "SecurityGroupEgress": [
+          {
+            "IpProtocol": "tcp",
+            "FromPort": 443,
+            "ToPort": 443,
+            "CidrIp": "0.0.0.0/0",
+            "Description": "AWS APIs (S3, DynamoDB, ECR, KMS) over HTTPS"
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Project",
+            "Value": "SiteProof"
+          },
+          {
+            "Key": "Component",
+            "Value": "AWS-C"
+          },
+          {
+            "Key": "siteproof:pilot-run-id",
+            "Value": {
+              "Ref": "PilotRunId"
+            }
+          }
+        ]
+      }
+    },
+    "WorkerInstance": {
+      "Type": "AWS::EC2::Instance",
+      "DeletionPolicy": "Delete",
+      "UpdateReplacePolicy": "Delete",
+      "Properties": {
+        "ImageId": {
+          "Ref": "ImageId"
+        },
+        "InstanceType": {
+          "Ref": "InstanceType"
+        },
+        "IamInstanceProfile": {
+          "Ref": "WorkerInstanceProfileName"
+        },
+        "InstanceInitiatedShutdownBehavior": "terminate",
+        "DisableApiTermination": false,
+        "Monitoring": false,
+        "CreditSpecification": {
+          "CPUCredits": "standard"
+        },
+        "MetadataOptions": {
+          "HttpEndpoint": "enabled",
+          "HttpTokens": "required",
+          "HttpPutResponseHopLimit": 1,
+          "InstanceMetadataTags": "disabled"
+        },
+        "NetworkInterfaces": [
+          {
+            "DeviceIndex": "0",
+            "SubnetId": {
+              "Ref": "SubnetId"
+            },
+            "GroupSet": [
+              {
+                "Ref": "WorkerSecurityGroup"
+              }
+            ],
+            "AssociatePublicIpAddress": true,
+            "DeleteOnTermination": true
+          }
+        ],
+        "BlockDeviceMappings": [
+          {
+            "DeviceName": {
+              "Ref": "RootDeviceName"
+            },
+            "Ebs": {
+              "VolumeSize": 30,
+              "VolumeType": "gp3",
+              "Encrypted": true,
+              "DeleteOnTermination": true
+            }
+          }
+        ],
+        "PropagateTagsToVolumeOnCreation": true,
+        "Tags": [
+          {
+            "Key": "Project",
+            "Value": "SiteProof"
+          },
+          {
+            "Key": "Component",
+            "Value": "AWS-C"
+          },
+          {
+            "Key": "siteproof:pilot-run-id",
+            "Value": {
+              "Ref": "PilotRunId"
+            }
+          }
+        ],
+        "UserData": {
+          "Fn::Base64": {
+            "Fn::Sub": "#!/bin/bash\n# SiteProof AWS-C single-use worker bootstrap. CANDIDATE / AWS LIVE NOT VERIFIED.\n# Source of truth for the UserData in worker.template.json (kept identical by a test).\n# Dollar-brace tokens are CloudFormation substitutions; shell variables use $NAME without\n# braces, so the two can never be confused.\n#\n# 1. Dead-man timer FIRST. Whatever happens below, the OS powers off after this many\n#    minutes, and the instance is configured to TERMINATE on OS shutdown. This layer\n#    needs no AWS API, no DynamoDB and no Lambda.\nshutdown -h +${MaxRuntimeMinutes} \"siteproof pilot hard stop\"\n\nset -uo pipefail\numask 077\n\n# 2. Any exit path (success, failure, missing tool) ends in an immediate power-off.\nfinish() {\n  sync\n  shutdown -h now\n}\ntrap finish EXIT\n\nexport AWS_DEFAULT_REGION='${AWS::Region}'\nexport PILOT_RUN_ID='${PilotRunId}'\nexport HARD_DEADLINE_UTC='${HardDeadlineUtc}'\nexport TABLE_NAME='${ControlTableName}'\nexport EVIDENCE_BUCKET='${EvidenceBucketName}'\nexport SIGNING_KEY_ID='${SigningKeyId}'\nexport CODE_BUCKET='${CodeBucket}'\nexport BUNDLE_KEY='${WorkerBundleKey}'\nexport BUNDLE_VERSION='${WorkerBundleObjectVersion}'\nexport BUNDLE_SHA256='${WorkerBundleSha256}'\nexport ECR_REGISTRY='${EcrRegistry}'\nexport RUNTIME_IMAGE='${EcrRegistry}/${EcrRepositoryName}@${RuntimeImageDigest}'\nexport EVIDENCE_DIR=/var/lib/siteproof/evidence\nexport DOCKER_BIN=/usr/bin/docker\n\n# 3. The machine image must already contain Docker and boto3. Nothing is installed from\n#    the network at run time; a missing tool ends the run (and the instance).\ncommand -v \"$DOCKER_BIN\" >/dev/null || exit 10\npython3 -c 'import boto3, sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' || exit 11\nsystemctl start docker || exit 12\n\ninstall -d -m 700 /opt/siteproof /var/lib/siteproof \"$EVIDENCE_DIR\"\n\n# 4. Fetch the exact reviewed source bundle version and verify its SHA-256 before use.\npython3 - <<'PY' || exit 20\nimport hashlib, io, os, sys, zipfile\nimport boto3\nbody = boto3.client(\"s3\").get_object(\n    Bucket=os.environ[\"CODE_BUCKET\"], Key=os.environ[\"BUNDLE_KEY\"],\n    VersionId=os.environ[\"BUNDLE_VERSION\"])[\"Body\"].read()\nif hashlib.sha256(body).hexdigest() != os.environ[\"BUNDLE_SHA256\"]:\n    sys.exit(\"bundle hash mismatch\")\nzipfile.ZipFile(io.BytesIO(body)).extractall(\"/opt/siteproof\")\nPY\n\n# 5. Registry login with the instance role, then pull the runtime image by digest only.\npython3 - <<'PY' | \"$DOCKER_BIN\" login --username AWS --password-stdin \"$ECR_REGISTRY\" >/dev/null || exit 30\nimport base64\nimport boto3\ntoken = boto3.client(\"ecr\").get_authorization_token()[\"authorizationData\"][0][\"authorizationToken\"]\nprint(base64.b64decode(token).decode().split(\":\", 1)[1], end=\"\")\nPY\n\"$DOCKER_BIN\" pull \"$RUNTIME_IMAGE\" >/dev/null || exit 31\n\n# 6. Start gate, fixture-only isolation harness, evidence publication (see worker_entry).\ncd /opt/siteproof || exit 40\npython3 -B -m src.aws_c.worker_entry \\\n  >/var/lib/siteproof/worker-result.json 2>/var/lib/siteproof/worker-stderr.log\n\n# 7. The EXIT trap powers the instance off; shutdown behaviour = terminate.\n"
+          }
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "InstanceId": {
+      "Description": "The single pilot instance. Not an availability or isolation observation.",
+      "Value": {
+        "Ref": "WorkerInstance"
+      }
+    }
+  }
+}

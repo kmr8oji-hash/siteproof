@@ -1,0 +1,61 @@
+{
+  "schema": "siteproof.targets.v1",
+  "http_interval_seconds": 21600,
+  "capture_interval_seconds": 86400,
+  "tls_stale_seconds": 172800,
+  "domain_stale_seconds": 2592000,
+  "pages": [
+    {
+      "target_id": "noxiworks-home",
+      "label": "トップページ",
+      "url": "https://noxiworks-sample.test/",
+      "site_id": "noxiworks"
+    },
+    {
+      "target_id": "noxiworks-taxi",
+      "label": "Taxi Anomaly Loop 紹介ページ",
+      "url": "https://noxiworks-sample.test/works/taxi-anomaly-loop/",
+      "site_id": "noxiworks"
+    },
+    {
+      "target_id": "hms-home",
+      "site_id": "hms",
+      "label": "トップページ",
+      "url": "https://hms-sample.test/"
+    },
+    {
+      "target_id": "hms-concierge",
+      "site_id": "hms",
+      "label": "コンシェルジュ",
+      "url": "https://hms-sample.test/concierge"
+    },
+    {
+      "target_id": "ttn-home",
+      "site_id": "ttn",
+      "label": "トップページ",
+      "url": "https://ttn-sample.test/"
+    }
+  ],
+  "sites": [
+    {
+      "site_id": "noxiworks",
+      "name": "NoxiWorks",
+      "origin": "https://noxiworks-sample.test",
+      "registration_domain": "noxiworks-sample.test"
+    },
+    {
+      "site_id": "hms",
+      "name": "Hello, My Saitama",
+      "origin": "https://hms-sample.test",
+      "registration_domain": null,
+      "registration_managed_by": "Cloudflare"
+    },
+    {
+      "site_id": "ttn",
+      "name": "Tokyo Trouble Navi",
+      "origin": "https://ttn-sample.test",
+      "registration_domain": null,
+      "registration_managed_by": "Cloudflare"
+    }
+  ]
+}

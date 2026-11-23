@@ -1,0 +1,18 @@
+{
+  "_status": "PROPOSAL ONLY / NOT APPLIED TO AWS. Add this one statement to the existing SiteProof-AWSB-ProbeBoundary policy (private package AWS_B_IAM_20261112/probe-boundary-policy.json, not modified here). Replace the placeholders. Without it the probe role's sns:Publish is cut off by the boundary and every notification fails (the heartbeat then goes silent and the aggregate alarm fires).",
+  "Statement": [
+    {
+      "Sid": "OwnAlertTopicPublish",
+      "Effect": "Allow",
+      "Action": "sns:Publish",
+      "Resource": "arn:aws:sns:us-east-1:<ACCOUNT_ID>:siteproof-b-<TRIAL_ID>-alerts",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "us-east-1"
+        }
+      }
+    }
+  ],
+  "_unchanged": "DynamoDB (PutItem, UpdateItem on siteproof-b-*-runs with LeadingKeys) and Logs statements stay as they are: the claim now returns HEAD with ReturnValues ALL_NEW, which needs UpdateItem only, not GetItem/Query. EMF metrics need no cloudwatch:PutMetricData (CloudWatch Logs extracts them).",
+  "_operator_side": "Creating infra/aws_b/health.json needs cloudwatch:PutMetricAlarm / DescribeAlarms / DeleteAlarms on the one heartbeat alarm name, and the stopper (if ever deployed) needs cloudwatch:DisableAlarmActions on that alarm only. The SNS topic policy must still allow cloudwatch.amazonaws.com (heartbeat alarm); the probe role publishes through IAM, not through the topic policy."
+}

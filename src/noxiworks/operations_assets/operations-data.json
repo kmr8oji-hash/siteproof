@@ -1,0 +1,188 @@
+{
+  "task": "SITEPROOF-AWS-OPERATIONS-UI-01",
+  "display_mode": "LOCAL ONLY",
+  "classification": {
+    "historical": "past measured trial/cleanup records",
+    "last_verified": "last saved confirmation, not current AWS data",
+    "unknown": "not currently retrieved",
+    "design_preview": "layout only; no invented resource status or cost",
+    "LOCAL ONLY": "Local read-only management screen"
+  },
+  "account_masked": "非公開",
+  "region": "us-east-1",
+  "connection": "DISCONNECTED",
+  "current_resources": "LIVE_UNVERIFIED",
+  "last_cleanup_record_at": "2026-11-12T16:02:26.896635+09:00",
+  "timestamp_semantics": "cleanup final-result ended_at; no fresh AWS confirmation",
+  "trial": "20261112-111514",
+  "historical_aws_b": {
+    "live": "PASS",
+    "cleanup": "PASS",
+    "deleted_resources": 52,
+    "deleted_stacks": 5,
+    "preserved_files": 591,
+    "temporary_policies": {
+      "count": 2,
+      "status": "REMOVED_USER_REPORTED",
+      "direct_recheck": false
+    }
+  },
+  "aws_c": {
+    "live": "NO-GO",
+    "c02": "DEFERRED / OPEN",
+    "local_isolation": "NOT VERIFIED",
+    "worker_operation": "UNPROVEN",
+    "actual_stop_and_cost": "UNKNOWN"
+  },
+  "retained_s3": {
+    "count_at_last_confirmation": 1,
+    "current_exists": "UNKNOWN",
+    "total_bytes": "UNKNOWN",
+    "all_versions": "UNKNOWN",
+    "storage_charge_possible": true
+  },
+  "cost": {
+    "current_month_bill": "UNKNOWN",
+    "past_aws_b_bill": "UNKNOWN",
+    "last_checked_at": "UNKNOWN",
+    "free_tier": "UNKNOWN"
+  },
+  "services": [
+    {
+      "name": "EC2",
+      "purpose": "撮影Worker",
+      "scope": "CANONICAL GATE",
+      "kind": "danger",
+      "last": "AWS-C LIVE NO-GO / 実運用未実証",
+      "unknown": "現在のリソース有無：UNKNOWN",
+      "console_url": "https://us-east-1.console.aws.amazon.com/ec2/home?region=us-east-1",
+      "live_verified": false
+    },
+    {
+      "name": "Lambda",
+      "purpose": "HTTP監視",
+      "scope": "LAST VERIFIED",
+      "kind": "history",
+      "last": "5関数・非同期設定5件 撤収済み",
+      "unknown": "現在の存在・設定：ライブ未確認",
+      "console_url": "https://us-east-1.console.aws.amazon.com/lambda/home?region=us-east-1",
+      "live_verified": false
+    },
+    {
+      "name": "EventBridge Scheduler",
+      "purpose": "定期起動",
+      "scope": "LAST VERIFIED",
+      "kind": "history",
+      "last": "5スケジュール 撤収済み",
+      "unknown": "現在の存在・設定：ライブ未確認",
+      "console_url": "https://us-east-1.console.aws.amazon.com/scheduler/home?region=us-east-1",
+      "live_verified": false
+    },
+    {
+      "name": "DynamoDB",
+      "purpose": "結果保存",
+      "scope": "LAST VERIFIED",
+      "kind": "history",
+      "last": "5テーブル 撤収済み",
+      "unknown": "現在の存在・保存量：ライブ未確認",
+      "console_url": "https://us-east-1.console.aws.amazon.com/dynamodbv2/home?region=us-east-1",
+      "live_verified": false
+    },
+    {
+      "name": "S3",
+      "purpose": "コード保管",
+      "scope": "LAST VERIFIED",
+      "kind": "hold",
+      "last": "1バケットを意図的に保持",
+      "unknown": "現在の存在・全版・総保存量：UNKNOWN",
+      "console_url": "https://s3.console.aws.amazon.com/s3/home?region=us-east-1",
+      "live_verified": false
+    },
+    {
+      "name": "CloudWatch",
+      "purpose": "ログ・アラーム",
+      "scope": "LAST VERIFIED",
+      "kind": "history",
+      "last": "Alarm 16件 / Logs 5件 撤収済み",
+      "unknown": "現在の存在・保持設定：ライブ未確認",
+      "console_url": "https://us-east-1.console.aws.amazon.com/cloudwatch/home?region=us-east-1",
+      "live_verified": false
+    },
+    {
+      "name": "SNS",
+      "purpose": "異常・復旧通知",
+      "scope": "LAST VERIFIED",
+      "kind": "history",
+      "last": "1トピック 撤収済み",
+      "unknown": "現在の存在・購読状態：ライブ未確認",
+      "console_url": "https://us-east-1.console.aws.amazon.com/sns/v3/home?region=us-east-1",
+      "live_verified": false
+    },
+    {
+      "name": "IAM",
+      "purpose": "実行権限",
+      "scope": "LAST VERIFIED",
+      "kind": "history",
+      "last": "実行ロール10件 撤収済み",
+      "unknown": "一時ポリシー2件の撤収：USER報告 / 現在未照会",
+      "console_url": "https://console.aws.amazon.com/iam/home",
+      "live_verified": false
+    }
+  ],
+  "history": [
+    {
+      "label": "HTTP監視",
+      "value": "3サイト・5ページ × 2回、全件HTTP 200",
+      "source": "HISTORICAL / 保存済み実測証拠"
+    },
+    {
+      "label": "DynamoDB",
+      "value": "10件の保存・読出し成功",
+      "source": "HISTORICAL / 保存済み実測証拠"
+    },
+    {
+      "label": "SNS通知",
+      "value": "模擬異常・復旧メールを両方受信",
+      "source": "USER_CONFIRMED"
+    },
+    {
+      "label": "限定LIVE",
+      "value": "PASS · 11:42:39 JST停止完了",
+      "source": "HISTORICAL / 保存済み停止証拠"
+    },
+    {
+      "label": "対象資源の撤収",
+      "value": "52件 撤収PASS",
+      "source": "HISTORICAL / 保存済み削除証拠"
+    },
+    {
+      "label": "CloudFormation",
+      "value": "5スタック DELETE_COMPLETE",
+      "source": "HISTORICAL / 保存済み削除証拠"
+    },
+    {
+      "label": "証拠保全",
+      "value": "591ファイル / SHA-256一致",
+      "source": "HISTORICAL / 保存済み保全記録"
+    },
+    {
+      "label": "一時IAM A/B",
+      "value": "割り当て解除・ポリシー本体2件の削除",
+      "source": "USER_REPORTED / APIによる再確認なし"
+    }
+  ],
+  "console_links": {
+    "EC2": "https://us-east-1.console.aws.amazon.com/ec2/home?region=us-east-1",
+    "Lambda": "https://us-east-1.console.aws.amazon.com/lambda/home?region=us-east-1",
+    "EventBridge Scheduler": "https://us-east-1.console.aws.amazon.com/scheduler/home?region=us-east-1",
+    "DynamoDB": "https://us-east-1.console.aws.amazon.com/dynamodbv2/home?region=us-east-1",
+    "S3": "https://s3.console.aws.amazon.com/s3/home?region=us-east-1",
+    "CloudWatch": "https://us-east-1.console.aws.amazon.com/cloudwatch/home?region=us-east-1",
+    "SNS": "https://us-east-1.console.aws.amazon.com/sns/v3/home?region=us-east-1",
+    "IAM": "https://console.aws.amazon.com/iam/home",
+    "Billing": "https://console.aws.amazon.com/billing/home"
+  },
+  "aws_calls": 0,
+  "console_access": false,
+  "browser_launched": false
+}

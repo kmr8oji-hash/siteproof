@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src blob:; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>SITEPROOF 画像比較 — LOCAL TOOL / USER DATA</title>
+<link rel="stylesheet" href="styles.css">
+<script src="app.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main">メインコンテンツへスキップ</a>
+
+<header class="site-header">
+  <div class="header-inner">
+    <p class="brand">
+      <svg class="brand-mark" viewBox="0 0 40 40" width="36" height="36" aria-hidden="true" focusable="false">
+        <path d="M4 36 L20 4 L26 4 L10 36 Z" fill="#12c8f0"/>
+        <path d="M16 36 L32 4 L38 4 L22 36 Z" fill="#2f6bff"/>
+      </svg>
+      <span class="brand-text">SITEPROOF</span>
+    </p>
+    <h1 class="page-title">画像比較</h1>
+    <ul class="header-badges" aria-label="環境ステータス">
+      <li class="badge badge-local">LOCAL TOOL / USER DATA</li>
+      <li class="badge badge-amber">LOCAL-ISOLATION NOT VERIFIED<span class="badge-sub">隔離状態：不明</span></li>
+      <li class="badge badge-amber">AWS LIVE NO-GO<span class="badge-sub">AWS 本番利用：不可</span></li>
+    </ul>
+    <p class="header-link"><a href="../home/index.html">HOME（合成 DEMO 画面）へ戻る</a></p>
+  </div>
+</header>
+
+<main id="main" class="main" tabindex="-1">
+
+  <noscript>
+    <p class="noscript-note" role="note"><strong>JavaScript が無効です。</strong>この画像比較ツールは JavaScript が必要なため、現在は利用できません。</p>
+  </noscript>
+
+  <section class="panel" aria-labelledby="scope-heading">
+    <div class="panel-head">
+      <h2 id="scope-heading">このツールについて <span class="h-en">SCOPE</span></h2>
+    </div>
+    <ul class="notes">
+      <li>これは <strong>ローカルで画像 2 枚を比較する単体ツール</strong>です。HOME 画面の SAMPLE / DEMO 表示（架空データ）とは別物で、ここに表示される数値は <strong>あなたが選んだ画像から計算した実データ</strong>です（SAMPLE ではありません）。</li>
+      <li>画像はこのブラウザ内でのみ処理します。アップロード・保存・外部通信・ページ内リンクの自動移動は行いません。</li>
+      <li>ピクセル差分は「ウェブサイトの不具合が確認された」ことを意味しません。品質の合否判定（PASS/FAIL）ではなく、Baseline の承認でも、S2 の信頼できる比較でもありません。</li>
+      <li>実キャプチャ・ジョブ実行・バックエンドは一切ありません。実サイトの検査は未実装です。HOME の JSON ビューアは利用者が選んだ未認証のファイルを表示するだけで、このページとは別機能です。</li>
+    </ul>
+    <dl class="formal">
+      <div><dt>正式評価（Formal assessment）</dt><dd class="formal-value">UNATTESTED</dd></div>
+      <div><dt>判定</dt><dd class="formal-value">UNKNOWN</dd></div>
+      <div><dt>実行</dt><dd class="formal-value">NOT_RUN</dd></div>
+    </dl>
+  </section>
+
+  <section class="panel" aria-labelledby="select-heading">
+    <div class="panel-head">
+      <h2 id="select-heading">画像の選択 <span class="h-en">SELECT</span></h2>
+      <p class="panel-note">PNG / JPEG / WebP ・ 1 ファイル 10 MiB まで ・ 幅・高さとも 4096 px まで</p>
+    </div>
+
+    <div class="slots">
+      <div class="slot" id="before-slot">
+        <h3>比較前 <span class="h-en">BEFORE</span></h3>
+        <label class="file-label" for="before-input">比較前（Before）の画像ファイルを選択</label>
+        <input id="before-input" class="file-input" type="file" accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp" aria-describedby="before-msg before-meta">
+        <p class="slot-msg" id="before-msg"></p>
+        <p class="slot-meta" id="before-meta"></p>
+        <div class="preview-box" id="before-preview-box" hidden>
+          <img id="before-preview" alt="比較前（Before）として選択した画像のプレビュー" hidden>
+        </div>
+        <button type="button" class="btn btn-secondary" id="before-clear" disabled>比較前の選択をクリア</button>
+      </div>
+
+      <div class="slot" id="after-slot">
+        <h3>比較後 <span class="h-en">AFTER</span></h3>
+        <label class="file-label" for="after-input">比較後（After）の画像ファイルを選択</label>
+        <input id="after-input" class="file-input" type="file" accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp" aria-describedby="after-msg after-meta">
+        <p class="slot-msg" id="after-msg"></p>
+        <p class="slot-meta" id="after-meta"></p>
+        <div class="preview-box" id="after-preview-box" hidden>
+          <img id="after-preview" alt="比較後（After）として選択した画像のプレビュー" hidden>
+        </div>
+        <button type="button" class="btn btn-secondary" id="after-clear" disabled>比較後の選択をクリア</button>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button type="button" class="btn btn-primary" id="compare-button" disabled>比較する</button>
+      <button type="button" class="btn btn-secondary" id="clear-result-button" disabled>結果だけをクリア（画像は残す）</button>
+      <button type="button" class="btn btn-secondary" id="reset-all-button" disabled>すべてリセット（画像と結果を消去）</button>
+    </div>
+    <p id="status" class="live-status" role="status" aria-live="polite"></p>
+    <p id="alert" class="live-alert" role="alert"></p>
+  </section>
+
+  <section class="panel result-panel" id="result" aria-labelledby="result-heading" hidden>
+    <div class="panel-head">
+      <h2 id="result-heading" tabindex="-1">比較結果 <span class="h-en">RESULT</span></h2>
+      <p class="panel-note">あなたが選んだ画像から計算した値です（SAMPLE ではありません）。</p>
+    </div>
+    <dl class="metrics">
+      <div><dt>比較した寸法</dt><dd id="metric-size"></dd></div>
+      <div><dt>差分ピクセル数</dt><dd id="metric-diff"></dd></div>
+      <div><dt>全ピクセル数</dt><dd id="metric-total"></dd></div>
+      <div><dt>差分率</dt><dd id="metric-ratio"></dd></div>
+    </dl>
+    <p class="result-note" id="result-note"></p>
+    <div class="diff-wrap">
+      <canvas id="diff-canvas" role="img" aria-label="差分キャンバス（結果なし）">差分画像を表示するには Canvas に対応したブラウザが必要です。</canvas>
+    </div>
+    <p class="panel-note">凡例：マゼンタ＝RGBA のいずれかが異なるピクセル／淡いグレー＝一致したピクセル（Before の薄い輪郭）。</p>
+  </section>
+
+  <section class="panel" aria-labelledby="method-heading">
+    <div class="panel-head">
+      <h2 id="method-heading">比較方法と制限 <span class="h-en">METHOD / LIMITS</span></h2>
+    </div>
+    <ul class="notes">
+      <li><strong>差分の定義：</strong>ブラウザがデコードして Canvas から読み出した生の RGBA（アルファ含む）を 1 ピクセルずつ比較し、R・G・B・A のいずれかが 1 でも異なれば「差分ピクセル」とします。しきい値・許容誤差・平滑化はありません。差分率＝差分ピクセル数 ÷ 全ピクセル数。</li>
+      <li><strong>寸法：</strong>2 枚の幅・高さが一致しない場合は比較を拒否します。自動のリサイズ・トリミング・撮影条件の正規化は行いません。</li>
+      <li><strong>信頼性の限界：</strong>ブラウザのデコードや色の扱い（ICC プロファイル等）、Canvas のアルファ処理は環境により異なり、これは信頼できるピクセル証明（attestation）ではありません。色管理を考慮した同等性は主張しません。</li>
+      <li><strong>非対応：</strong>アニメーション（APNG・アニメーション WebP）、複数フレーム／マルチピクチャ JPEG、EXIF の向き情報（Orientation が 1 以外）の画像は、どのフレーム・向きを比較するか不定になるため保守的に拒否します。向きの正規化は行いません。</li>
+      <li><strong>入力検査：</strong>空ファイル、10 MiB 超、拡張子・MIME・ファイル内容の不一致、ヘッダー上の寸法が 4096 px 超（または総ピクセル数が 4096×4096 超）の画像は、デコード前に拒否します。デコード後の寸法も再確認します。</li>
+      <li><strong>メモリ：</strong>4096×4096 の組は一時的に大きなメモリを使用します（Canvas 2 枚＋差分 1 枚）。比較は行単位で分割して処理し、確保に失敗した場合は結果を表示せずエラーにします。</li>
+      <li><strong>フレーム保護：</strong>CSP は meta 要素で指定しているため、frame-ancestors（埋め込み拒否）は強制されません。サーバーヘッダーによる保護は未実施です。</li>
+    </ul>
+    <p class="panel-note">実際の描画・操作・ブラウザ標準のデコード・キーボード／支援技術での動作は、この環境では未検証（UNKNOWN）です。</p>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <p>SITEPROOF 画像比較 ・ LOCAL TOOL / USER DATA ・ LOCAL-ISOLATION NOT VERIFIED ・ AWS LIVE NO-GO ・ 正式評価 UNATTESTED / UNKNOWN / NOT_RUN</p>
+</footer>
+</body>
+</html>

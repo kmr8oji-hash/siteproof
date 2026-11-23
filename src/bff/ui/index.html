@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>SITEPROOF LOCAL HOME — Baseline確認</title>
+<link rel="stylesheet" href="/local/home.css">
+<link rel="stylesheet" href="/local/baseline.css">
+<script src="/local/workspace.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main">メインコンテンツへスキップ</a>
+<header class="site-header"><div class="header-inner">
+  <div class="header-left"><p class="brand"><span class="brand-text">SITEPROOF</span></p><h1 class="page-title">LOCAL HOME</h1></div>
+  <div class="header-bar"><ul class="header-badges"><li class="badge">BASELINE LOCAL</li><li class="badge badge-amber">LOCAL-ISOLATION NOT VERIFIED</li></ul></div>
+</div></header>
+<main id="main" class="main" tabindex="-1">
+  <nav class="panel local-navigation" aria-label="ローカルHOME"><a href="#m1-configuration">サイト・ページ</a> <a href="#runtime-heading">撮影Job</a> <a href="#list-heading">Baseline</a> <a href="#m4-heading">比較・履歴</a> <a href="#m1-compare-heading">合成fixture</a></nav>
+  <section class="panel" aria-labelledby="trust-heading">
+    <div class="panel-head"><h2 id="trust-heading">保存済みBaselineの確認</h2></div>
+    <p>このローカル画面はSQLiteに保存された候補・現行版・承認履歴を表示します。候補の承認は内容確認後の明示操作でのみ行います。削除・任意更新・撮影・ジョブ実行は行いません。</p>
+    <p><strong>PROFILE_UNATTESTED / UNKNOWN</strong>：撮影profileの真正性とWeb品質は未確認です。APPROVEDはBaselineに対する人の承認であり、Web品質PASSではありません。CHANGEDは画像差分を観測した状態で、不具合確定ではありません。</p>
+  </section>
+  <section class="panel" aria-labelledby="pair-heading">
+    <div class="panel-head"><h2 id="pair-heading">ローカル接続</h2></div>
+    <p>信頼された起動プロセスに表示された短寿命・一回限りのペアリングコードを入力してください。URLやファイルへ保存しないでください。</p>
+    <form id="pair-form" autocomplete="off">
+      <label for="pair-code">ペアリングコード</label>
+      <input id="pair-code" type="password" maxlength="32" autocomplete="off" spellcheck="false" required>
+      <button type="submit" id="pair-button" class="flow-btn">接続する</button>
+    </form>
+    <p id="connection-status" role="status" aria-live="polite">認証が必要です</p>
+  </section>
+  <section id="m1-configuration" class="panel" aria-labelledby="m1-heading">
+    <div class="panel-head"><h2 id="m1-heading">M1 オフラインHOME</h2><button id="m1-reload" type="button" class="flow-btn">M1再読込</button></div>
+    <p id="m1-message" role="status" aria-live="polite">認証が必要です</p>
+    <p>URLは設定の保存だけに使用し、アクセスしません。合成fixtureの保存は実Job・実撮影ではありません。画像プレビューは最大65,536 pixelsのRGB/RGBA PNGに限定し、正式な品質判定はUNKNOWNです。</p>
+    <div class="local-fields">
+      <label>サイト名 <input id="m1-site-label" maxlength="2048"></label>
+      <label>サイトorigin（HTTPS、パスなし） <input id="m1-site-origin" placeholder="https://fixture.invalid" maxlength="2048"></label>
+      <button id="m1-site-save" type="button" class="flow-btn">サイト保存</button>
+      <label>ページID <input id="m1-page-id" maxlength="64"></label>
+      <label>ページ名 <input id="m1-page-label" maxlength="2048"></label>
+      <label>ページpath <input id="m1-page-path" placeholder="/" maxlength="2048"></label>
+      <button id="m1-page-save" type="button" class="flow-btn">ページ登録・編集</button>
+    </div>
+    <div class="baseline-table-wrap"><table><thead><tr><th>ページID</th><th>名前</th><th>path</th><th>revision</th><th>操作</th></tr></thead><tbody id="m1-pages"></tbody></table></div>
+    <h3>Desktop / Mobile設定と合成fixture</h3>
+    <div class="local-fields">
+      <label>対象ページ <select id="m1-profile-page"></select></label>
+      <label>CaptureProfile <select id="m1-profile-kind"><option>Desktop</option><option>Mobile</option></select></label>
+      <label>viewport幅 <input id="m1-profile-width" type="number" min="1" max="4096"></label>
+      <label>viewport高さ <input id="m1-profile-height" type="number" min="1" max="4096"></label>
+      <button id="m1-profile-save" type="button" class="flow-btn">profile設定保存</button>
+      <label>合成画像 <select id="m1-fixture-name"><option value="original">基準fixture（8×8）</option><option value="changed">1 pixel変更</option><option value="missing">画像欠損</option><option value="profile-mismatch">profile不一致</option></select></label>
+      <button id="m1-fixture-save" type="button" class="flow-btn">合成fixtureを保存（撮影なし）</button>
+    </div>
+    <div class="baseline-table-wrap"><table><thead><tr><th>ページ</th><th>profile</th><th>fixture</th><th>ID</th><th>fixture状態</th><th>Job実行</th><th>品質</th><th>Baseline</th></tr></thead><tbody id="m1-captures"></tbody></table></div>
+  </section>
+  <section class="panel" aria-labelledby="list-heading">
+    <div class="panel-head"><h2 id="list-heading">Baseline候補</h2><button id="reload-list" class="flow-btn" type="button">再読込</button></div>
+    <p id="list-message" role="status" aria-live="polite"></p>
+    <div class="baseline-table-wrap"><table><thead><tr><th>対象ページ</th><th>profile</th><th>候補ID</th><th>承認状態</th><th>現行version</th><th>内容</th></tr></thead><tbody id="baseline-list"></tbody></table></div>
+    <button id="list-next" class="flow-btn" type="button" disabled>次の候補</button>
+  </section>
+  <section class="panel" aria-labelledby="detail-heading">
+    <div class="panel-head"><h2 id="detail-heading">Baseline詳細</h2></div>
+    <p id="detail-message" role="status"></p><dl id="baseline-detail" class="baseline-detail"></dl>
+    <div id="approval-panel" class="approval-panel" hidden>
+      <p>承認者は信頼された起動プロセスが指定したローカル操作主体です。ペアリングは現実世界の本人確認ではありません。承認してもPROFILE_UNATTESTED / UNKNOWNは変わりません。</p>
+      <label><input id="approval-confirm" type="checkbox"> 対象page・profile・候補ID・revision・artifact参照・完全なdigest・承認状態・現行versionを確認しました</label>
+      <button id="approve-button" class="flow-btn" type="button" disabled>このBaselineを承認</button>
+    </div>
+    <p id="approval-message" role="status" aria-live="polite"></p>
+  </section>
+  <section class="panel" aria-labelledby="history-heading">
+    <div class="panel-head"><h2 id="history-heading">過去版・承認履歴</h2></div>
+    <p id="history-message" role="status"></p><ul id="baseline-history" class="baseline-history"></ul>
+    <button id="history-next" class="flow-btn" type="button" disabled>次の履歴</button>
+  </section>
+  <section class="panel" aria-labelledby="m1-compare-heading">
+    <div class="panel-head"><h2 id="m1-compare-heading">Compare — 保存済みfixture</h2></div>
+    <div class="local-fields"><label>承認済みBaseline版 <select id="m1-baseline"></select></label><label>比較するfixture <select id="m1-capture"></select></label><button id="m1-compare" type="button" class="flow-btn">プレビュー計算・保存</button></div>
+    <p id="m1-result" role="status"></p>
+    <div class="preview-grid"><figure><figcaption>固定Baseline版</figcaption><img id="m1-before" alt="Baseline fixture" hidden></figure><figure><figcaption>比較fixture</figcaption><img id="m1-after" alt="比較fixture" hidden></figure><figure><figcaption>差分プレビュー（品質判定ではありません）</figcaption><img id="m1-diff" alt="差分プレビュー" hidden></figure></div>
+  </section>
+  <section class="panel" aria-labelledby="m1-history-heading"><div class="panel-head"><h2 id="m1-history-heading">比較結果の保存履歴</h2></div><div class="baseline-table-wrap"><table><thead><tr><th>ページ</th><th>profile</th><th>Baseline版</th><th>プレビュー状態</th><th>品質</th><th>ID</th><th>操作</th></tr></thead><tbody id="m1-history"></tbody></table></div></section>
+  <noscript><p>この読取画面にはJavaScriptが必要です。JavaScriptが無効な間はBaselineを取得しません。</p></noscript>
+  <section class="panel" aria-labelledby="runtime-heading">
+    <h2 id="runtime-heading">撮影Job・S1証拠参照</h2>
+    <p>実行状態と品質評価は別です。PROFILE_UNATTESTED / 品質UNKNOWN / 隔離未実測。</p>
+    <button id="runtime-refresh" type="button" class="flow-btn">撮影結果を取得</button>
+    <div id="runtime-results" role="status" aria-live="polite"></div>
+  </section>
+  <section class="panel" aria-labelledby="m4-heading">
+    <div class="panel-head"><h2 id="m4-heading">撮影証拠の比較・結果履歴</h2><button id="m4-refresh" class="flow-btn" type="button">比較・履歴を再読込</button></div>
+    <p>撮影成功の証拠から候補を作り、既存のBaseline詳細画面で内容を確認して明示承認します。承認後に開始するJobが基準版を固定します。過去のJobの基準版は変わりません。1サイト最大5ページ、Desktop / Mobile各1設定です。</p>
+    <p>PASSは検証済みの撮影条件・整合した証拠・明示した閾値を満たす場合だけです。CHANGEDは差分の観測であり、不具合確定ではありません。未認証・不一致・閾値未設定・証拠欠損はUNKNOWNです。人の承認とJob実行状態は品質評価とは別です。</p>
+    <p id="m4-message" role="status" aria-live="polite">認証が必要です</p>
+    <div id="m4-jobs"></div>
+    <p id="m4-result" role="status" aria-live="polite"></p>
+    <div class="preview-grid"><figure><figcaption>基準画像（Job開始時の固定版）</figcaption><img id="m4-baseline" alt="基準画像" hidden></figure><figure><figcaption>現在画像</figcaption><img id="m4-current" alt="現在画像" hidden></figure><figure><figcaption>差分画像</figcaption><img id="m4-diff" alt="差分画像" hidden></figure></div>
+    <h3>保存した比較結果（保存時点の観測）</h3><div id="m4-history"></div><button id="m4-next" class="flow-btn" type="button" disabled>次の比較履歴</button>
+  </section>
+</main>
+<footer class="site-footer"><p>LOCAL / PROFILE_UNATTESTED / UNKNOWN / LOCAL-S2/S3未完成</p></footer>
+</body></html>

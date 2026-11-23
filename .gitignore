@@ -1,0 +1,37 @@
+.env
+.env.*
+!.env.example
+/secrets/
+/.local/
+/data/
+/artifacts/
+/logs/
+/tmp/
+*.log
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+node_modules/
+/dist/
+/build/
+/coverage/
+/playwright-report/
+/test-results/
+.DS_Store
+Thumbs.db
+
+# Not for publication: AWS-B operator IAM material with the real account ID / ARNs and the account-specific template generator
+/docs/aws_portfolio/AWS_B_IAM_20261112/
+# Local outputs of the demo and the app
+/demo-out/
+__pycache__/
+*.pyc
+# Not for publication: patch against the private generator; contains the real account ID
+/docs/aws_portfolio/AWS_B_LITE_generator.patch
+# Personal settings (see README: SITEPROOF_TARGETS)
+/targets.local.json
+/capture_plan.local.json
+/*.local.json

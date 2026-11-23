@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>SITEPROOF HOME — UI SAMPLE / DEMO（オフライン）</title>
+<link rel="stylesheet" href="styles.css">
+<script src="app.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main">メインコンテンツへスキップ</a>
+
+<header class="site-header" data-dialog-background>
+  <div class="header-inner">
+    <div class="header-left">
+      <p class="brand">
+        <svg class="brand-mark" viewBox="0 0 84 44" width="60" height="32" aria-hidden="true" focusable="false">
+          <path d="M30 2 H82 L56 42 H4 Z" fill="#1f5eff"/>
+          <path d="M12 22 H48 L38 42 H2 Z" fill="#12c8f0"/>
+        </svg>
+        <span class="brand-text">SITEPROOF</span>
+      </p>
+      <h1 class="page-title">HOME</h1>
+    </div>
+    <p class="header-link"><a href="../compare/index.html">画像比較ツールを開く（ローカルで実際にピクセルを計算）</a></p>
+    <div class="header-bar">
+      <ul class="header-badges" aria-label="環境ステータス">
+        <li class="badge badge-sample">UI SAMPLE / DEMO</li>
+        <li class="badge badge-amber">LOCAL-ISOLATION NOT VERIFIED<span class="badge-sub">隔離状態：不明</span></li>
+      </ul>
+      <span class="header-tools" aria-hidden="true">
+        <svg class="tool-icon" aria-hidden="true" viewBox="0 0 32 32" width="26" height="26" focusable="false"><path d="M16 4 C11 4 9 8 9 12 V17 L6 24 H26 L23 17 V12 C23 8 21 4 16 4 Z M13 27 H19" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+        <svg class="tool-icon" aria-hidden="true" viewBox="0 0 32 32" width="26" height="26" focusable="false"><path d="M16 3 L27 9.5 V22.5 L16 29 L5 22.5 V9.5 Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="16" cy="16" r="4.5" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+      </span>
+    </div>
+  </div>
+</header>
+
+<main id="main" class="main" data-dialog-background tabindex="-1">
+
+  <noscript>
+    <p class="noscript-note" role="note"><strong>JavaScript が無効です。</strong>この画面は静的なサンプル表示のみ利用できます。ランチャーのサンプル詳細ダイアログ（対話操作）は JavaScript が必要です。詳細内容は下部の「サンプル詳細一覧」で確認できます。</p>
+  </noscript>
+
+  <section class="panel status-panel" aria-labelledby="status-heading">
+    <div class="panel-head">
+      <h2 id="status-heading">現在の状態 <span class="h-en">STATUS</span></h2>
+      <p class="panel-note">すべて <strong>DEMO</strong> 表示です。実測値ではありません（SAMPLE DATA）。</p>
+    </div>
+    <div class="status-cards">
+      <article class="status-card card-neutral" data-card="environment">
+        <svg class="status-icon" viewBox="0 0 48 48" width="40" height="40" aria-hidden="true" focusable="false"><rect x="6" y="6" width="36" height="15" fill="none" stroke="currentColor" stroke-width="3"/><rect x="6" y="27" width="36" height="15" fill="none" stroke="currentColor" stroke-width="3"/><path d="M12 13.5 H24 M12 34.5 H24" stroke="currentColor" stroke-width="3"/></svg>
+        <h3>実行環境</h3>
+        <p class="card-value">LOCAL隔離 未検証</p>
+        <p class="card-meta">DEMO ・ 検証は行われていません</p>
+      </article>
+      <article class="status-card" data-card="targets">
+        <svg class="status-icon" viewBox="0 0 48 48" width="40" height="40" aria-hidden="true" focusable="false"><ellipse cx="24" cy="11" rx="16" ry="6" fill="none" stroke="currentColor" stroke-width="3"/><path d="M8 11 V37 C8 40.5 15 43 24 43 C33 43 40 40.5 40 37 V11 M8 24 C8 27.5 15 30 24 30 C33 30 40 27.5 40 24" fill="none" stroke="currentColor" stroke-width="3"/></svg>
+        <h3>監視対象</h3>
+        <p class="card-value">DEMO 128件</p>
+        <p class="card-meta">SAMPLE DATA ・ 実測ではありません</p>
+      </article>
+      <article class="status-card" data-card="jobs">
+        <svg class="status-icon" viewBox="0 0 48 48" width="40" height="40" aria-hidden="true" focusable="false"><path d="M12 6 L40 24 L12 42 Z" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="miter"/></svg>
+        <h3>検査ジョブ</h3>
+        <p class="card-value">DEMO 未実行</p>
+        <p class="card-meta">SAMPLE DATA ・ 実際のジョブではありません</p>
+      </article>
+      <article class="status-card card-amber" data-card="attention">
+        <svg class="status-icon" viewBox="0 0 48 48" width="40" height="40" aria-hidden="true" focusable="false"><path d="M24 5 L44 40 H4 Z" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="miter"/><path d="M24 17 V28 M24 33 V36" stroke="currentColor" stroke-width="3"/></svg>
+        <h3>要確認</h3>
+        <p class="card-value">DEMO 3件</p>
+        <p class="card-meta">SAMPLE DATA ・ 実際の項目ではありません</p>
+      </article>
+    </div>
+  </section>
+
+  <div class="home-grid">
+    <section class="launcher-section" aria-labelledby="launcher-heading">
+      <h2 id="launcher-heading" class="sr-only">ランチャー <span class="h-en">LAUNCHER</span></h2>
+      <p class="section-note sr-only">ボタンはサンプル詳細を表示するだけです。操作・実行・移動は一切行いません。</p>
+      <div class="launcher-grid">
+        <button type="button" class="launcher launcher-primary" aria-haspopup="dialog" data-sample-target="detail-checks">
+          <svg class="launcher-icon" viewBox="0 0 48 48" width="60" height="60" aria-hidden="true" focusable="false"><rect x="9" y="8" width="30" height="35" fill="none" stroke="currentColor" stroke-width="3"/><path d="M18 8 V4 H30 V8 M16 26 L22 32 L33 19" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="square"/></svg>
+          <span class="launcher-label">検査・監視</span>
+          <span class="launcher-en">CHECKS</span>
+          <span class="launcher-note">サンプル詳細を表示（実行しません）</span>
+          <svg class="launcher-chevron" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><path d="M8 3 L17 12 L8 21" fill="none" stroke="currentColor" stroke-width="3"/></svg>
+        </button>
+        <button type="button" class="launcher launcher-secondary" aria-haspopup="dialog" data-sample-target="detail-review">
+          <svg class="launcher-icon" viewBox="0 0 48 48" width="60" height="60" aria-hidden="true" focusable="false"><path d="M6 6 H28 V34 H6 Z M12 14 H22 M12 20 H22 M12 26 H18" fill="none" stroke="currentColor" stroke-width="3"/><path d="M28 16 H42 V44 H20 V34 M26 26 H36 M26 32 H36 M26 38 H32" fill="none" stroke="currentColor" stroke-width="3"/></svg>
+          <span class="launcher-label">差分レビュー</span>
+          <span class="launcher-en">REVIEW</span>
+          <span class="launcher-note">サンプル詳細を表示（実行しません）</span>
+          <svg class="launcher-chevron" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><path d="M8 3 L17 12 L8 21" fill="none" stroke="currentColor" stroke-width="3"/></svg>
+        </button>
+        <button type="button" class="launcher" aria-haspopup="dialog" data-sample-target="detail-sites">
+          <svg class="launcher-icon" viewBox="0 0 48 48" width="60" height="60" aria-hidden="true" focusable="false"><circle cx="24" cy="24" r="19" fill="none" stroke="currentColor" stroke-width="3"/><ellipse cx="24" cy="24" rx="8" ry="19" fill="none" stroke="currentColor" stroke-width="3"/><path d="M5 24 H43 M8 14 H40 M8 34 H40" fill="none" stroke="currentColor" stroke-width="3"/></svg>
+          <span class="launcher-label">サイト管理</span>
+          <span class="launcher-en">SITES</span>
+          <span class="launcher-note">サンプル詳細を表示（実行しません）</span>
+          <svg class="launcher-chevron" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><path d="M8 3 L17 12 L8 21" fill="none" stroke="currentColor" stroke-width="3"/></svg>
+        </button>
+        <button type="button" class="launcher" aria-haspopup="dialog" data-sample-target="detail-evidence">
+          <svg class="launcher-icon" viewBox="0 0 48 48" width="60" height="60" aria-hidden="true" focusable="false"><ellipse cx="24" cy="10" rx="16" ry="6" fill="none" stroke="currentColor" stroke-width="3"/><path d="M8 10 V38 C8 41.5 15 44 24 44 C33 44 40 41.5 40 38 V10 M8 24 C8 27.5 15 30 24 30 C33 30 40 27.5 40 24" fill="none" stroke="currentColor" stroke-width="3"/></svg>
+          <span class="launcher-label">証拠ライブラリ</span>
+          <span class="launcher-en">EVIDENCE</span>
+          <span class="launcher-note">サンプル詳細を表示（実行しません）</span>
+          <svg class="launcher-chevron" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><path d="M8 3 L17 12 L8 21" fill="none" stroke="currentColor" stroke-width="3"/></svg>
+        </button>
+        <button type="button" class="launcher" aria-haspopup="dialog" data-sample-target="detail-activity">
+          <svg class="launcher-icon" viewBox="0 0 48 48" width="60" height="60" aria-hidden="true" focusable="false"><path d="M8 17 A18 18 0 1 1 6 26" fill="none" stroke="currentColor" stroke-width="3"/><path d="M6 7 V18 H17 M26 14 V25 L33 31" fill="none" stroke="currentColor" stroke-width="3"/></svg>
+          <span class="launcher-label">履歴・通知</span>
+          <span class="launcher-en">ACTIVITY</span>
+          <span class="launcher-note">サンプル詳細を表示（実行しません）</span>
+          <svg class="launcher-chevron" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><path d="M8 3 L17 12 L8 21" fill="none" stroke="currentColor" stroke-width="3"/></svg>
+        </button>
+        <button type="button" class="launcher" aria-haspopup="dialog" data-sample-target="detail-reports">
+          <svg class="launcher-icon" viewBox="0 0 48 48" width="60" height="60" aria-hidden="true" focusable="false"><path d="M6 44 H44 M8 44 V30 H17 V44 M20 44 V20 H29 V44 M32 44 V6 H41 V44" fill="none" stroke="currentColor" stroke-width="4"/></svg>
+          <span class="launcher-label">レポート</span>
+          <span class="launcher-en">REPORTS</span>
+          <span class="launcher-note">サンプル詳細を表示（実行しません）</span>
+          <svg class="launcher-chevron" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><path d="M8 3 L17 12 L8 21" fill="none" stroke="currentColor" stroke-width="3"/></svg>
+        </button>
+      </div>
+    </section>
+
+    <section class="log-section panel" aria-labelledby="log-heading">
+      <div class="log-bar">
+        <svg class="log-icon" viewBox="0 0 32 32" width="28" height="28" aria-hidden="true" focusable="false"><path d="M7 3 H19 L25 9 V29 H7 Z M19 3 V9 H25 M11 15 H21 M11 20 H21 M11 25 H17" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+        <h2 id="log-heading">最新ログ <span class="h-en">LATEST ACTIVITY</span></h2>
+        <span class="log-demo">DEMO</span>
+      </div>
+      <p class="section-note log-note">時刻・対象はすべて合成（架空）で、すべて SAMPLE です。COMPLETED は終了のみ、PASS は品質の主張、UNKNOWN は成功ではありません。</p>
+      <ol class="log-list">
+        <li class="log-row" data-log-status="completed">
+          <p class="log-head"><span class="status-badge st-completed">COMPLETED</span><span class="sample-tag">SAMPLE</span></p>
+          <p class="log-event">ジョブが終了しました<span class="log-target">/products/（架空の対象）</span></p>
+          <p class="log-time"><span class="log-time-tag">合成時刻</span>10:24</p>
+          <p class="log-expl sr-only">ジョブが終了したことだけを示します。品質の良し悪しではありません。</p>
+        </li>
+        <li class="log-row" data-log-status="pass">
+          <p class="log-head"><span class="status-badge st-pass">PASS</span><span class="sample-tag">SAMPLE</span></p>
+          <p class="log-event">品質判定の主張を受領<span class="log-target">/lp/（架空の対象）</span></p>
+          <p class="log-time"><span class="log-time-tag">合成時刻</span>10:18</p>
+          <p class="log-expl sr-only">独立した品質判定が「合格」という主張です。ここでは SAMPLE DATA であり、実測ではありません。</p>
+        </li>
+        <li class="log-row" data-log-status="changed">
+          <p class="log-head"><span class="status-badge st-changed">CHANGED</span><span class="sample-tag">SAMPLE</span></p>
+          <p class="log-event">差分を検出<span class="log-target">/contact/（架空の対象）</span></p>
+          <p class="log-time"><span class="log-time-tag">合成時刻</span>09:52</p>
+          <p class="log-expl sr-only">差分があったことを示します。不具合とは限りません。</p>
+        </li>
+        <li class="log-row" data-log-status="approved">
+          <p class="log-head"><span class="status-badge st-approved">APPROVED</span><span class="sample-tag">SAMPLE</span></p>
+          <p class="log-event">人が差分を承認<span class="log-target">/news/（架空の対象）</span></p>
+          <p class="log-time"><span class="log-time-tag">合成時刻</span>09:41</p>
+          <p class="log-expl sr-only">人による承認です。品質を保証するものではありません。</p>
+        </li>
+        <li class="log-row" data-log-status="unknown">
+          <p class="log-head"><span class="status-badge st-unknown">UNKNOWN</span><span class="sample-tag">SAMPLE</span></p>
+          <p class="log-event">ステータスが不明です<span class="log-target">/campaign/（架空の対象）</span></p>
+          <p class="log-time"><span class="log-time-tag">合成時刻</span>09:15</p>
+          <p class="log-expl sr-only">証跡が不足しています。成功とはみなしません。</p>
+        </li>
+      </ol>
+    </section>
+  </div>
+
+  <section id="aws-sample" class="aws-section" aria-labelledby="aws-heading">
+    <div class="aws-inner">
+      <svg class="aws-icon" viewBox="0 0 64 44" width="96" height="66" aria-hidden="true" focusable="false"><path d="M16 38 C7 38 3 31 6 25 C8 21 12 20 14 20 C15 11 22 6 30 7 C37 8 41 13 42 18 C50 16 58 21 57 29 C56 35 51 38 46 38 Z" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="miter"/></svg>
+      <div class="aws-text">
+        <h2 id="aws-heading">AWS / クラウド運用 <span class="h-en">CLOUD OPERATIONS / UI SAMPLE</span></h2>
+        <p>本番のクラウド操作は行えません。以下はすべて無効化されたサンプル表示です。</p>
+        <div class="aws-actions">
+          <button type="button" disabled>本番接続（無効）</button>
+          <button type="button" disabled>本番デプロイ（無効）</button>
+          <button type="button" disabled>本番設定の変更（無効）</button>
+        </div>
+      </div>
+      <p class="aws-status"><span class="badge badge-amber">AWS LIVE NO-GO</span></p>
+    </div>
+  </section>
+
+  <p class="aux-label"><strong>補助機能 / AUXILIARY</strong> ー 以下はダッシュボードとは別の領域です（合成ジョブのデモ／利用者が選んだローカル JSON の表示）。</p>
+
+  <section id="flow-demo" class="panel flow-panel" aria-labelledby="flow-heading">
+    <div class="panel-head">
+      <h2 id="flow-heading">ジョブ受付フロー <span class="h-en">JOB INTAKE FLOW ・ SYNTHETIC</span></h2>
+      <ul class="flow-flags" aria-label="このフローの注意">
+        <li class="flow-flag">SAMPLE DATA / OFFLINE DEMO</li>
+        <li class="flow-flag flow-flag-amber">LOCAL-ISOLATION NOT VERIFIED</li>
+        <li class="flow-flag flow-flag-amber">AWS LIVE NO-GO</li>
+      </ul>
+    </div>
+    <p class="section-note">合成（架空）データだけのオフラインデモです。実際のジョブ・取得データ・ファイル・出力は扱いません。通信も保存もせず、ページを再読み込みするとすべて消えます。状態は自動では進まず、下のボタンを押したときだけ変わります。上の状態カードとログは、このフローと連動しない固定サンプルです。</p>
+    <p id="flow-nojs" class="flow-nojs" role="note">このデモフローは現在利用できません（JavaScript が無効、または初期化できませんでした）。実際のジョブは存在しません。</p>
+
+    <div id="flow-app" class="flow-app" hidden>
+      <div class="flow-grid">
+        <div class="flow-col">
+          <div class="flow-step" role="group" aria-labelledby="flow-add-heading">
+            <h3 id="flow-add-heading">1. 合成ジョブを追加 <span class="h-en">ADD</span></h3>
+            <div class="flow-row">
+              <label for="flow-scenario">合成シナリオ</label>
+              <select id="flow-scenario" aria-describedby="flow-scenario-help">
+                <option value="present-pass-changed">証跡あり ／ 品質 PASS ／ 差分 CHANGED</option>
+                <option value="present-pass-compare-unknown">証跡あり ／ 品質 PASS ／ 比較 UNKNOWN（基準なし）</option>
+                <option value="present-quality-unknown-changed">証跡あり ／ 品質 UNKNOWN ／ 差分 CHANGED</option>
+                <option value="evidence-absent">証跡なし（PASS / CHANGED を主張しても UNKNOWN になる）</option>
+                <option value="evidence-unknown">証跡 不明（PASS / CHANGED を主張しても UNKNOWN になる）</option>
+              </select>
+              <button type="button" id="flow-add" class="flow-btn" aria-describedby="flow-scenario-help">合成ジョブを追加（SAMPLE）</button>
+            </div>
+            <p id="flow-scenario-help" class="flow-help">シナリオは合成の結果設定です。実際の検査ではありません。追加したジョブは PENDING で、自動では進みません（最大 8 件）。</p>
+          </div>
+
+          <div class="flow-step" role="group" aria-labelledby="flow-list-heading">
+            <h3 id="flow-list-heading">2. ジョブを選択 <span class="h-en">SELECT</span></h3>
+            <p id="flow-empty" class="flow-help">合成ジョブはまだありません。「合成ジョブを追加」を押してください。</p>
+            <ul id="flow-list" class="flow-job-list" aria-label="合成ジョブ一覧（SAMPLE）"></ul>
+          </div>
+        </div>
+
+        <div class="flow-col">
+          <div class="flow-step" role="group" aria-labelledby="flow-actions-heading">
+            <h3 id="flow-actions-heading">3. 状態を進める <span class="h-en">SIMULATE</span></h3>
+            <p id="flow-hint" class="flow-help">ジョブが選択されていません。「合成ジョブを追加」で作成するか、一覧から選択してください。</p>
+            <div class="flow-actions">
+              <button type="button" id="flow-start" class="flow-btn" aria-disabled="true" aria-describedby="flow-hint">開始をシミュレート（PENDING → RUNNING）</button>
+              <button type="button" id="flow-complete" class="flow-btn" aria-disabled="true" aria-describedby="flow-hint">完了をシミュレート（RUNNING → COMPLETED）</button>
+              <button type="button" id="flow-unknown" class="flow-btn" aria-disabled="true" aria-describedby="flow-hint">不明終了をシミュレート（RUNNING → UNKNOWN）</button>
+            </div>
+            <p class="flow-help">これらは画面上の状態を書き換えるだけで、何も実行・送信・保存しません。</p>
+            <p class="flow-help">利用できない操作もフォーカスできます。押すと利用できない理由が表示されますが、状態は変更されません。</p>
+          </div>
+
+          <div class="flow-step" role="group" aria-labelledby="flow-detail-heading">
+            <h3 id="flow-detail-heading">4. 状態・時刻・結果を確認 <span class="h-en">INSPECT</span></h3>
+            <p id="flow-selected" class="flow-selected">選択中: なし</p>
+            <p id="flow-detail-empty" class="flow-help">ジョブを選択すると、状態・時刻・合成結果がここに表示されます。</p>
+            <dl class="flow-dl">
+              <div class="flow-dl-row">
+                <dt>ジョブ状態 <span class="h-en">JOB STATE</span></dt>
+                <dd><span id="flow-v-state" class="status-badge st-none">—</span> <span id="flow-n-state" class="flow-note"></span></dd>
+              </div>
+              <div class="flow-dl-row">
+                <dt>品質判定 <span class="h-en">QUALITY</span></dt>
+                <dd><span id="flow-v-quality" class="status-badge st-none">—</span> <span id="flow-n-quality" class="flow-note"></span></dd>
+              </div>
+              <div class="flow-dl-row">
+                <dt>差分比較 <span class="h-en">COMPARISON</span></dt>
+                <dd><span id="flow-v-comparison" class="status-badge st-none">—</span> <span id="flow-n-comparison" class="flow-note"></span></dd>
+              </div>
+              <div class="flow-dl-row">
+                <dt>人の承認 <span class="h-en">HUMAN APPROVAL</span></dt>
+                <dd><span id="flow-v-approval" class="status-badge st-none">—</span> <span id="flow-n-approval" class="flow-note"></span></dd>
+              </div>
+              <div class="flow-dl-row">
+                <dt>合成証跡 <span class="h-en">SYNTHETIC EVIDENCE</span></dt>
+                <dd><span id="flow-v-evidence" class="status-badge st-none">—</span> <span id="flow-n-evidence" class="flow-note"></span></dd>
+              </div>
+              <div class="flow-dl-row">
+                <dt>実ファイル・実証跡 <span class="h-en">REAL EVIDENCE</span></dt>
+                <dd><span class="status-badge st-none">NOT READ</span> <span class="flow-note">実ファイルは読み取りません。実証跡の有無についても何も主張しません。</span></dd>
+              </div>
+              <div class="flow-dl-row">
+                <dt>作成時刻 <span class="h-en">CREATED</span></dt>
+                <dd id="flow-t-created">—</dd>
+              </div>
+              <div class="flow-dl-row">
+                <dt>開始時刻 <span class="h-en">STARTED</span></dt>
+                <dd id="flow-t-started">—</dd>
+              </div>
+              <div class="flow-dl-row">
+                <dt>終了時刻 <span class="h-en">FINISHED</span></dt>
+                <dd id="flow-t-finished">—</dd>
+              </div>
+              <div class="flow-dl-row">
+                <dt>合成結果の要約 <span class="h-en">SYNTHETIC RESULT</span></dt>
+                <dd id="flow-summary">—</dd>
+              </div>
+            </dl>
+            <p class="flow-help">時刻は合成時計（2000-01-01 から 1 操作ごとに 1 分進む）で、実際の時刻ではありません。</p>
+          </div>
+        </div>
+      </div>
+
+      <p id="flow-status" class="flow-status" role="status" aria-live="polite" aria-atomic="true"></p>
+      <p id="flow-error" class="flow-error" role="alert"></p>
+    </div>
+  </section>
+
+  <section id="result-viewer" class="panel flow-panel" aria-labelledby="rv-heading">
+    <div class="panel-head">
+      <h2 id="rv-heading">ローカル結果ビューア <span class="h-en">OFFLINE RESULT VIEWER ・ UNTRUSTED FILE</span></h2>
+      <ul class="flow-flags" aria-label="このビューアの注意">
+        <li class="flow-flag">OFFLINE REPORT / UNTRUSTED FILE</li>
+        <li class="flow-flag flow-flag-amber">LOCAL-ISOLATION NOT VERIFIED</li>
+        <li class="flow-flag flow-flag-amber">AWS LIVE NO-GO</li>
+      </ul>
+    </div>
+    <p class="rv-untrusted"><strong>ローカルファイルから読み込んだ未認証レポート</strong> ー 出所は未認証です。HOME は S1 DB・manifest・スクリーンショットを検証していません。</p>
+    <p class="section-note">利用者が明示的に選択した JSON ファイル（最大 1 MiB）だけをこの画面内で解析して表示します。上のジョブ受付フロー（合成）とは無関係です。通信・保存・スキャンは行わず、参照パスやファイルを開くこともしません。ページを再読み込みするとすべて消えます。</p>
+    <p id="rv-nojs" class="flow-nojs" role="note">このビューアは現在利用できません（JavaScript が無効、または初期化できませんでした）。ファイルは読み込まれていません。</p>
+
+    <div id="rv-app" class="flow-app" hidden>
+      <div class="flow-step" role="group" aria-labelledby="rv-select-heading">
+        <h3 id="rv-select-heading">結果 JSON を選択 <span class="h-en">SELECT</span></h3>
+        <div class="flow-row">
+          <button type="button" id="rv-select" class="flow-btn" aria-describedby="rv-select-help">結果 JSON ファイルを選択…（ローカル）</button>
+          <span id="rv-picker-slot"></span>
+        </div>
+        <p id="rv-select-help" class="flow-help">ボタンを押したときだけファイル選択が開きます。選択のやり直し・キャンセル・読み取り失敗のとき、前の結果は消えます。</p>
+      </div>
+
+      <p id="rv-status" class="flow-status" role="status" aria-live="polite" aria-atomic="true"></p>
+      <p id="rv-error" class="flow-error" role="alert"></p>
+
+      <div id="rv-result" class="flow-step rv-result" role="group" aria-labelledby="rv-result-heading" hidden>
+        <h3 id="rv-result-heading">読み込んだレポートの内容 <span class="h-en">REPORT CLAIMS ・ NOT VERIFIED BY HOME</span></h3>
+        <p class="rv-untrusted"><strong>ローカルファイルから読み込んだ未認証レポート</strong> ー 以下はファイル内の主張であり、HOME は検証していません。</p>
+        <dl class="flow-dl">
+          <div class="flow-dl-row">
+            <dt>報告元 <span class="h-en">SOURCE</span></dt>
+            <dd><span id="rv-v-source" class="status-badge st-none"></span> <span class="flow-note">発行者を証明するものではありません。</span></dd>
+          </div>
+          <div class="flow-dl-row">
+            <dt>ジョブ <span class="h-en">JOB</span></dt>
+            <dd id="rv-v-job"></dd>
+          </div>
+          <div class="flow-dl-row">
+            <dt>試行 <span class="h-en">ATTEMPT</span></dt>
+            <dd id="rv-v-attempt"></dd>
+          </div>
+          <div class="flow-dl-row">
+            <dt>ブリッジ結果 <span class="h-en">BRIDGE</span></dt>
+            <dd><span id="rv-v-bridge" class="status-badge"></span> <span id="rv-n-bridge" class="flow-note"></span></dd>
+          </div>
+          <div class="flow-dl-row">
+            <dt>拒否・理由コード <span class="h-en">BRIDGE REASON</span></dt>
+            <dd id="rv-v-reason"></dd>
+          </div>
+          <div class="flow-dl-row">
+            <dt>プロファイル信頼 <span class="h-en">PROFILE TRUST</span></dt>
+            <dd><span id="rv-v-profile" class="status-badge st-unknown"></span> <span class="flow-note">プロファイルは証明されていません。</span></dd>
+          </div>
+          <div class="flow-dl-row">
+            <dt>適格性 <span class="h-en">ELIGIBILITY</span></dt>
+            <dd><span id="rv-v-eligibility" class="status-badge st-unknown"></span> <span class="flow-note">プロファイル信頼とは別の項目です。適格かどうかは不明です。</span></dd>
+          </div>
+          <div class="flow-dl-row">
+            <dt>差分比較 <span class="h-en">COMPARISON</span></dt>
+            <dd><span id="rv-v-comparison" class="status-badge st-none"></span> <span class="flow-note">比較は実行されていません。</span></dd>
+          </div>
+          <div class="flow-dl-row">
+            <dt>人の承認 <span class="h-en">HUMAN APPROVAL</span></dt>
+            <dd><span id="rv-v-approval" class="status-badge st-none"></span> <span class="flow-note">承認は記録されていません。</span></dd>
+          </div>
+          <div class="flow-dl-row">
+            <dt>証跡の構造状態 <span class="h-en">EVIDENCE (REPORT CLAIM)</span></dt>
+            <dd><span id="rv-v-evidence" class="status-badge"></span> <span id="rv-n-evidence" class="flow-note"></span></dd>
+          </div>
+          <div class="flow-dl-row">
+            <dt>manifest 参照 <span class="h-en">MANIFEST REF</span></dt>
+            <dd id="rv-v-manifest" class="rv-ref"></dd>
+          </div>
+          <div class="flow-dl-row">
+            <dt>スクリーンショット参照 <span class="h-en">SCREENSHOT REF</span></dt>
+            <dd id="rv-v-screenshot" class="rv-ref"></dd>
+          </div>
+          <div class="flow-dl-row">
+            <dt>不明の理由 <span class="h-en">UNKNOWN REASONS</span></dt>
+            <dd><ul id="rv-v-unknown" class="rv-reasons"></ul></dd>
+          </div>
+          <div class="flow-dl-row">
+            <dt>注記 <span class="h-en">NOTICE</span></dt>
+            <dd id="rv-v-notice"></dd>
+          </div>
+          <div class="flow-dl-row">
+            <dt>HOME による検証 <span class="h-en">HOME VERIFICATION</span></dt>
+            <dd><span class="status-badge st-none">NOT VERIFIED</span> <span class="flow-note">S1 DB・manifest・スクリーンショットの実体は検証していません。参照は表示のみで、開きません。構造チェックは真正性・存在・品質を示しません。</span></dd>
+          </div>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <section id="sample-details" class="panel details-section" aria-labelledby="details-heading">
+    <h2 id="details-heading">サンプル詳細一覧</h2>
+    <p class="section-note">JavaScript が有効な場合、ランチャーのボタンで同じ内容がダイアログに表示されます。JavaScript が無効でもここで読めます。いずれもサンプルであり、何も実行しません。</p>
+
+    <article id="detail-checks" class="detail" data-sample-detail data-title="検査・監視 / CHECKS（サンプル）">
+      <h3 class="detail-heading">検査・監視 / CHECKS（サンプル）</h3>
+      <p>検査の概要を表示する想定のサンプル画面です。実際の検査は開始されません。</p>
+      <ul>
+        <li>表示内容はすべて DEMO / SAMPLE DATA です。</li>
+        <li>LOCAL-ISOLATION NOT VERIFIED：隔離は検証されていません。</li>
+      </ul>
+    </article>
+    <article id="detail-review" class="detail" data-sample-detail data-title="差分レビュー / REVIEW（サンプル）">
+      <h3 class="detail-heading">差分レビュー / REVIEW（サンプル）</h3>
+      <p>人によるレビュー画面の想定サンプルです。承認や却下は記録されません。</p>
+      <ul>
+        <li>APPROVED は人の承認であり、品質の保証ではありません。</li>
+        <li>この画面からの操作はありません。</li>
+      </ul>
+    </article>
+    <article id="detail-sites" class="detail" data-sample-detail data-title="サイト管理 / SITES（サンプル）">
+      <h3 class="detail-heading">サイト管理 / SITES（サンプル）</h3>
+      <p>対象サイト一覧の想定サンプルです。実在のサイトには接続しません。</p>
+      <ul>
+        <li>サイト名・件数はすべて架空です。</li>
+        <li>外部への移動は行いません。</li>
+      </ul>
+    </article>
+    <article id="detail-evidence" class="detail" data-sample-detail data-title="証拠ライブラリ / EVIDENCE（サンプル）">
+      <h3 class="detail-heading">証拠ライブラリ / EVIDENCE（サンプル）</h3>
+      <p>証拠ライブラリの想定サンプルです。証拠は読み込まれません。</p>
+      <ul>
+        <li>UNATTESTED：証明されていないサンプルです。</li>
+        <li>Production Profile Trust Source OPEN：未解決の項目であり、本番を意味しません。</li>
+      </ul>
+    </article>
+    <article id="detail-activity" class="detail" data-sample-detail data-title="履歴・通知 / ACTIVITY（サンプル）">
+      <h3 class="detail-heading">履歴・通知 / ACTIVITY（サンプル）</h3>
+      <p>履歴・通知の想定サンプルです。実際の履歴や通知は取得しません。</p>
+      <ul>
+        <li>COMPLETED はジョブ終了のみを示し、品質ではありません。</li>
+        <li>UNKNOWN は証跡不足であり、成功ではありません。</li>
+      </ul>
+    </article>
+    <article id="detail-reports" class="detail" data-sample-detail data-title="レポート / REPORTS（サンプル）">
+      <h3 class="detail-heading">レポート / REPORTS（サンプル）</h3>
+      <p>レポート一覧の想定サンプルです。出力・ダウンロード・送信は行いません。</p>
+      <ul>
+        <li>PASS は SAMPLE DATA 上の品質主張であり、実測ではありません。</li>
+        <li>CHANGED は差分であり、不具合とは限りません。</li>
+      </ul>
+    </article>
+  </section>
+</main>
+
+<footer class="site-footer" data-dialog-background>
+  <p><strong>DEMO / SAMPLE DATA</strong> ー 上部のダッシュボード・ログ・合成ジョブは架空のサンプルで、実測値ではありません。ローカル結果ビューアに表示されるのは、上記の内蔵合成デモとは別の、利用者が選んだ未認証のファイルの主張です。</p>
+  <p>ゲート：<span class="gate">LOCAL-ISOLATION NOT VERIFIED</span> ／ <span class="gate">AWS LIVE NO-GO</span></p>
+  <p>オフライン静的サンプル。ネットワーク通信・保存・本番操作はありません。</p>
+  <p>この画面の区別：合成 DEMO（架空データ）／利用者が選んだ未認証の JSON（ローカル結果ビューア）／画像比較ページの実ピクセル計算（別ページ）／実サイトの検査は未実装です。</p>
+</footer>
+
+<dialog id="sample-dialog" class="sample-dialog" aria-labelledby="sample-dialog-title" aria-describedby="sample-dialog-desc">
+  <div class="dialog-frame">
+    <p class="dialog-badge">SAMPLE ・ 実行なし</p>
+    <h2 id="sample-dialog-title">サンプル詳細</h2>
+    <p id="sample-dialog-desc">これはローカルのサンプル表示です。何も実行・送信・保存されません。</p>
+    <div id="sample-dialog-body" class="dialog-body"></div>
+    <div class="dialog-actions">
+      <button type="button" id="sample-dialog-close" class="btn-close">閉じる</button>
+    </div>
+  </div>
+</dialog>
+</body>
+</html>

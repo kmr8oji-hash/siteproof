@@ -1,0 +1,42 @@
+SiteProof
+Copyright 2026 SiteProof contributors
+
+SiteProof's own source code, documentation and tests are licensed under the
+Apache License, Version 2.0. See the LICENSE file.
+
+Third-party material
+====================
+
+The files below are not original SiteProof code. Their copyright and license
+are retained.
+
+1. runtime/docker/seccomp-playwright.json
+   Unmodified copy of utils/docker/seccomp_profile.json from Playwright v1.64.1.
+   Source:    https://github.com/microsoft/playwright/blob/v1.64.1/utils/docker/seccomp_profile.json
+   SHA-256:   cc3e61cabda6bbc1e53e54d27ba4d55a9d3be829b6dd1a596f4a7b31b1cc7849
+   Copyright: Portions Copyright (c) Microsoft Corporation.
+              Portions Copyright 2017 Google Inc.
+   License:   Apache License, Version 2.0
+              https://github.com/microsoft/playwright/blob/v1.64.1/LICENSE
+
+2. runtime/docker/seccomp-siteproof.json
+   Derived from the file above and MODIFIED by SiteProof: one rule block that
+   allows the "chroot" syscall was added to the "syscalls" list (needed by the
+   Chromium namespace sandbox). All other rules are unchanged. The Playwright
+   copyright and the Apache License, Version 2.0 apply to the unmodified parts.
+
+The NOTICE file of Playwright v1.64.1 reads:
+
+   Playwright
+   Copyright (c) Microsoft Corporation
+
+   This software contains code derived from the Puppeteer project
+   (https://github.com/puppeteer/puppeteer), available under the Apache 2.0
+   license (https://github.com/puppeteer/puppeteer/blob/master/LICENSE).
+
+Not distributed with this repository
+====================================
+
+The Playwright container image and Python wheels used by runtime/docker/Dockerfile
+are downloaded at build time and remain under their own licenses. The AWS SDK
+(boto3/botocore) is provided by the AWS Lambda runtime and is not included.
