@@ -16,7 +16,7 @@ from src.noxiworks.product import PLAN, capture_plan, dashboard, empty_snapshot,
 from src.noxiworks.review import page_view, render as render_review
 
 NOW = datetime(2026, 11, 18, 6, 0, tzinfo=timezone.utc)
-ORIGIN = 'https://ttn-sample.test'
+ORIGIN = 'https://tokyo-trouble-navi-review-ai-off-2026.kmr8oji.workers.dev'
 KINDS = {'Desktop': (1440, 900, '7fac617a79e84cec9a1084d2c840b742', (250, 250, 250)),
          'Mobile': (390, 844, 'e54b6f48ba7041f48ab72259815eae14', (240, 244, 255))}
 

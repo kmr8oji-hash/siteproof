@@ -8,52 +8,52 @@
     {
       "target_id": "noxiworks-home",
       "label": "トップページ",
-      "url": "https://noxiworks-sample.test/",
+      "url": "https://noxiworks.com/",
       "site_id": "noxiworks"
     },
     {
       "target_id": "noxiworks-taxi",
       "label": "Taxi Anomaly Loop 紹介ページ",
-      "url": "https://noxiworks-sample.test/works/taxi-anomaly-loop/",
+      "url": "https://noxiworks.com/works/taxi-anomaly-loop/",
       "site_id": "noxiworks"
     },
     {
       "target_id": "hms-home",
       "site_id": "hms",
       "label": "トップページ",
-      "url": "https://hms-sample.test/"
+      "url": "https://hello-my-saitama.kmr8oji.workers.dev/"
     },
     {
       "target_id": "hms-concierge",
       "site_id": "hms",
       "label": "コンシェルジュ",
-      "url": "https://hms-sample.test/concierge"
+      "url": "https://hello-my-saitama.kmr8oji.workers.dev/concierge"
     },
     {
       "target_id": "ttn-home",
       "site_id": "ttn",
       "label": "トップページ",
-      "url": "https://ttn-sample.test/"
+      "url": "https://tokyo-trouble-navi-review-ai-off-2026.kmr8oji.workers.dev/"
     }
   ],
   "sites": [
     {
       "site_id": "noxiworks",
       "name": "NoxiWorks",
-      "origin": "https://noxiworks-sample.test",
-      "registration_domain": "noxiworks-sample.test"
+      "origin": "https://noxiworks.com",
+      "registration_domain": "noxiworks.com"
     },
     {
       "site_id": "hms",
       "name": "Hello, My Saitama",
-      "origin": "https://hms-sample.test",
+      "origin": "https://hello-my-saitama.kmr8oji.workers.dev",
       "registration_domain": null,
       "registration_managed_by": "Cloudflare"
     },
     {
       "site_id": "ttn",
       "name": "Tokyo Trouble Navi",
-      "origin": "https://ttn-sample.test",
+      "origin": "https://tokyo-trouble-navi-review-ai-off-2026.kmr8oji.workers.dev",
       "registration_domain": null,
       "registration_managed_by": "Cloudflare"
     }

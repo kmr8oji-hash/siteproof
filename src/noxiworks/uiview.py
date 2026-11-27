@@ -106,4 +106,7 @@ def monitor_view(*, enabled, running, paused_reason, last, readiness, permit, se
         return view('PERMIT_EXPIRED', '撮影許可の期限切れ', 'error', '撮影許可の期限が切れました。「監視設定を更新」で新しい許可を作ると、再開できます。', block=gap)
     if not ready:
         return view('NOT_READY', '停止中（実サイト監視の準備待ち）', 'warn', (gap or '撮影の条件が整っていません。') + '条件が整うまで撮影しません。', block=gap)
+    if paused_reason == 'RESTORED':  # only the last fallback: a permit that ran out or a missing condition above is still what is shown
+        return view('STOPPED', '停止中（バックアップから復元）', 'warn', 'バックアップから復元したコピーのため、監視は止めてあります。自動では検査しません。'
+                    '元のデータフォルダと同時に使わず、内容を確認してから「監視を開始」を押してください。', start=True)
     return view('STOPPED', '停止中', 'warn', '監視は止まっています。自動では検査しません。「監視を開始」を押すと、定期検査を始めます。', start=True)

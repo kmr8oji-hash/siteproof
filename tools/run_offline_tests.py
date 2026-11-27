@@ -54,7 +54,8 @@ def main() -> int:
     parser.add_argument("suites", nargs="*")
     args = parser.parse_args()
     if args.one:
-        print("RESULT " + json.dumps(_run_one(Path(args.one).resolve())))
+        result = _run_one(Path(args.one).resolve())
+        print("\nRESULT " + json.dumps(result), flush=True)  # own line: a test may leave a partial line on stdout
         return 0
 
     out = Path(args.out).resolve() if args.out else None

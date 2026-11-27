@@ -102,7 +102,7 @@ def stop_real():
     confirmed = STATE['lease'].stop() if STATE['lease'] is not None else True
     site_policy.REAL_SITE_ACCESS_ENABLED = False
     try:
-        real_site_policy(SiteNetworkPlan('REAL', (SiteEntry(TARGET_ID, ('noxiworks-sample.test',)),), enabled=True))
+        real_site_policy(SiteNetworkPlan('REAL', (SiteEntry(TARGET_ID, ('noxiworks.com',)),), enabled=True))
         refused_after = False
     except RealSiteAccessDisabled:
         refused_after = True
@@ -114,7 +114,7 @@ def policy_default():
     out = {'flag': site_policy.REAL_SITE_ACCESS_ENABLED}
     for label, enabled in (('plan_enabled_flag_off', True), ('plan_disabled', False)):
         try:
-            real_site_policy(SiteNetworkPlan('REAL', (SiteEntry(TARGET_ID, ('noxiworks-sample.test',)),), enabled=enabled))
+            real_site_policy(SiteNetworkPlan('REAL', (SiteEntry(TARGET_ID, ('noxiworks.com',)),), enabled=enabled))
             out[label] = 'POLICY_BUILT'
         except RealSiteAccessDisabled:
             out[label] = 'REFUSED'

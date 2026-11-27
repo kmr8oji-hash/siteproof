@@ -23,7 +23,7 @@ function fixture(storage = null) {
     return g;
   };
   const groups = [
-    group('noxiworks', [['NoxiWorks トップページ https://noxiworks-sample.test/', 'false', 'false'], ['NoxiWorks Taxi Anomaly Loop https://noxiworks-sample.test/works/taxi-anomaly-loop/', 'true', 'false']], true),
+    group('noxiworks', [['NoxiWorks トップページ https://noxiworks.com/', 'false', 'false'], ['NoxiWorks Taxi Anomaly Loop https://noxiworks.com/works/taxi-anomaly-loop/', 'true', 'false']], true),
     group('hms', [['Hello, My Saitama トップページ /', 'false', 'true'], ['Hello, My Saitama コンシェルジュ /concierge', 'true', 'true']], false),
     group('ttn', [['Tokyo Trouble Navi トップページ /', 'false', 'false']], false)
   ];

@@ -11,10 +11,15 @@ The permit fixes, under the signature:
                      nothing else) -- and the SHA-256 of the site's own targets.json and capture_plan.json, so editing the URL in a
                      settings file without a new signature changes a pinned hash and is refused
   scope              valid_from / valid_until, max_runs, ownership check record (method + time), issued_by (= the trusted principal)
-  ownership          well-known-file / dns-txt: the method and the time of the USER's check. CLOUDFLARE_ACCOUNT_CONTROL (workers.dev hosts
-                     only): also the account ID hash, the Worker name and the account's workers.dev subdomain -- the host must be exactly
+  ownership          well-known-file / dns-txt: NOT verifiable yet -- a method and a time are only a claim, so they never allow a
+                     capture (VERIFIABLE_METHODS). CLOUDFLARE_ACCOUNT_CONTROL (workers.dev hosts only): the account ID hash,
+                     the Worker name and the account's workers.dev subdomain -- the host must be exactly
                      <worker>.<subdomain>.workers.dev -- and the ID + SHA-256 of the evidence file <site>/real/ownership-evidence.json,
                      whose content must state the same values and the same check time. The account hash alone never passes.
+                     DNS_TXT_CHALLENGE (any public host): the USER published the token issued for this site id and this exact host as a TXT
+                     record of that host, the USER-run check found exactly that value, and the evidence file (same place, pinned by hash) says
+                     so for at most 90 days. The record of another host, a parent domain or another site never passes; a withdrawn check
+                     (real/ownership-revoked.json) ends it at once. 'dns-txt' / 'well-known-file' stay what they were: claims, never accepted.
   identity           the harness identity (pinned file hashes, image ID, browser bundle manifest): the `--expect` the harness checks
   baseline_policy    AUTO_INITIAL_THEN_COMPARE: the first stable capture under this permit may become the Baseline, and later runs
                      are compared with exactly that Baseline (derive_expect adds its pins); NONE: no Baseline is ever created
@@ -34,8 +39,13 @@ from src.aws_b.model import parse_utc
 SCHEMA = 'siteproof.monitoring-permit.v1'
 NAMESPACE = 'siteproof-monitoring-permit'
 POLICIES = ('AUTO_INITIAL_THEN_COMPARE', 'NONE')
-OWNERSHIP_METHODS = ('well-known-file', 'dns-txt', 'CLOUDFLARE_ACCOUNT_CONTROL')
+OWNERSHIP_METHODS = ('well-known-file', 'dns-txt', 'CLOUDFLARE_ACCOUNT_CONTROL', 'DNS_TXT_CHALLENGE')
+VERIFIABLE_METHODS = ('CLOUDFLARE_ACCOUNT_CONTROL', 'DNS_TXT_CHALLENGE')  # the only ones whose evidence is really checked below; any other method is refused
 OWNERSHIP_EVIDENCE = 'ownership-evidence.json'  # in <site>/real/, next to permit.json; placed by the USER, pinned by the permit
+OWNERSHIP_REVOKED = 'ownership-revoked.json'  # in <site>/real/: written when a later check did not find the record any more
+DNS_EVIDENCE_SCHEMA = 'siteproof.ownership-evidence.dns-txt-challenge.v1'
+DNS_RECORD_PREFIX = '_siteproof-challenge.'
+DNS_MAX_DAYS = 90
 CF_EVIDENCE_SCHEMA = 'siteproof.ownership-evidence.cloudflare-account-control.v1'
 DNS_LABEL = r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?'
 MAX_EVIDENCE_BYTES = 64 * 1024
@@ -129,8 +139,58 @@ def ownership_problems(permit, host, target_dir, now):
     own = permit.get('ownership') or {}
     if own.get('method') not in OWNERSHIP_METHODS or parse_utc(own.get('verified_at') or '') is None:
         return ['所有権の確認記録がありません']
-    if own['method'] == 'CLOUDFLARE_ACCOUNT_CONTROL':
-        return cloudflare_ownership_problems(own, host, Path(target_dir) / 'real' / OWNERSHIP_EVIDENCE, now)
+    if own['method'] not in VERIFIABLE_METHODS:  # a recorded method + time with nothing to check it against proves nothing
+        return [f"所有権の確認方法「{own['method']}」は、まだ自動照合に対応していません。実サイトの撮影は開始できません"]
+    if own['method'] == 'DNS_TXT_CHALLENGE':
+        site = permit.get('site')
+        site_id = site.get('site_id') if isinstance(site, dict) else permit.get('site_id')  # the image permit / the HTTP grant
+        return dns_ownership_problems(own, site_id, host, Path(target_dir) / 'real', now)
+    return cloudflare_ownership_problems(own, host, Path(target_dir) / 'real' / OWNERSHIP_EVIDENCE, now)
+
+
+def dns_ownership_problems(own, site_id, host, folder, now):
+    """DNS_TXT_CHALLENGE: the signed record, the pinned evidence file and this moment must all agree on one site id, one exact host, one record
+    name and one token, checked not longer ago than the evidence allows (at most 90 days). -> list of problems (all start with 所有権)."""
+    dns, pin = own.get('dns'), own.get('evidence')
+    if not (isinstance(dns, dict) and isinstance(pin, dict)):
+        return ['所有権の確認記録（DNS）が不完全です']
+    token, verified, until = str(dns.get('token_sha256', '')), parse_utc(own.get('verified_at') or ''), parse_utc(str(dns.get('valid_until', '')))
+    if not (re.fullmatch(r'[0-9a-f]{64}', token) and isinstance(pin.get('evidence_id'), str) and re.fullmatch(r'dns-[A-Za-z0-9._-]{1,60}', pin['evidence_id'])
+            and re.fullmatch(r'[0-9a-f]{64}', str(pin.get('sha256', '')))):
+        return ['所有権の確認記録（DNS）が不完全です']
+    if not isinstance(site_id, str) or not isinstance(host, str) or dns.get('site_id') != site_id or dns.get('host') != host or dns.get('record_name') != DNS_RECORD_PREFIX + host:
+        return ['所有権の確認記録（DNS）が、このサイト・このホストのものではありません']
+    if verified > now:
+        return ['所有権の確認日時が未来です']
+    if until is None or until <= verified or (until - verified).total_seconds() > DNS_MAX_DAYS * 86400 or now >= until:
+        return ['所有権の確認（DNS）の有効期限が切れています。もう一度確認してください']
+    evidence_file = folder / OWNERSHIP_EVIDENCE
+    if not evidence_file.is_file():
+        return ['所有権の確認の証拠ファイルがありません']
+    raw = evidence_file.read_bytes()
+    if len(raw) > MAX_EVIDENCE_BYTES or hashlib.sha256(raw).hexdigest() != pin['sha256']:
+        return ['所有権の確認の証拠ファイルが許可に固定された内容と一致しません']
+    try:
+        ev = json.loads(raw.decode('utf-8'))
+        checks = ev['checks']
+        issued, expires = parse_utc(str(ev.get('challenge_issued_at', ''))), parse_utc(str(ev.get('challenge_expires_at', '')))
+        same = (ev.get('schema') == DNS_EVIDENCE_SCHEMA and ev.get('method') == 'DNS_TXT_CHALLENGE' and ev.get('evidence_id') == pin['evidence_id']
+                and ev.get('site_id') == site_id and ev.get('host') == host and ev.get('record_name') == dns['record_name'] and ev.get('token_sha256') == token
+                and parse_utc(str(ev.get('checked_at', ''))) == verified and parse_utc(str(ev.get('valid_until', ''))) == until
+                and issued is not None and expires is not None and issued <= verified < expires
+                and all(checks.get(k) is True for k in ('record_found', 'exact_value', 'all_answers_agree')))
+    except (UnicodeDecodeError, ValueError, KeyError, TypeError, AttributeError):
+        return ['所有権の確認の証拠ファイルを読み取れません']
+    if not same:
+        return ['所有権の確認の証拠の内容が許可の記録と一致しません']
+    revoked = folder / OWNERSHIP_REVOKED
+    if revoked.exists():  # present and unreadable counts as withdrawn
+        try:
+            withdrawn = json.loads(revoked.read_text('utf-8')).get('evidence_id')
+        except (OSError, ValueError, AttributeError):
+            withdrawn = pin['evidence_id']
+        if withdrawn == pin['evidence_id']:
+            return ['所有権の確認は取り消されています（後の確認で、DNSの記録が見つかりませんでした）']
     return []
 
 

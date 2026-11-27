@@ -1,8 +1,10 @@
 """Automatic monitoring of the registered site: initial inspection -> automatic initial Baseline -> scheduled, compared inspections.
 
-Run one due inspection from an OS scheduler (GUI closed):   py -3.15 -B -m src.noxiworks.site_monitor --data DIR
+Run the due inspections from an OS scheduler (GUI closed):   py -3.15 -B -m src.noxiworks.site_monitor --data DIR [--site ID]
 The local app (src/noxiworks/app.py) calls the same Monitor.run_if_due() from its background thread while it is open. A lock file
-(site/monitor.lock) keeps the two from ever running at the same time. This module registers nothing with the OS scheduler.
+(site/monitor.lock) keeps the two from ever running at the same time; settings change under an OS lock between processes (what the USER
+stopped is never started again by a worker that was saving its result), and only one REAL capture runs per data folder at a time
+(<data>/capture.lock). This module registers nothing with the OS scheduler.
 
 State is site/monitor.json (settings + last result + next due time, written atomically) and site/monitor-log.jsonl (one line per
 finished inspection, including failures that produced no run).
@@ -24,6 +26,7 @@ decision is open (hold_for_decisions: a formal approval of an automatic Baseline
 switch). The policy never starts, resumes or retries anything and never changes a permit; resuming is the USER's explicit action.
 """
 import argparse
+from contextlib import contextmanager
 from datetime import timedelta
 import json
 import os
@@ -33,6 +36,7 @@ import threading
 import time
 
 from src.aws_b.model import format_utc, parse_utc
+from src.noxiworks import filelock, sites
 
 NOT_READY_RETRY_SECONDS = 3600  # REAL_NOT_READY: look again within the hour (nothing is captured meanwhile)
 
@@ -45,7 +49,8 @@ AUTO_ACTOR = 'SiteProof自動作成（初回の安定した撮影・利用者は
 DISK_LIMIT = 2 * 1024 ** 3  # default per-site storage limit; at the limit monitoring pauses (nothing is deleted)
 DISK_WARN = 0.8
 LOCK_STALE_SECONDS = 900  # a lock older than this is left over from a crashed worker
-SETTINGS_LOCK = threading.Lock()  # load-modify-save of monitor.json within this process (GUI vs scheduler thread)
+SETTINGS_LOCK = threading.RLock()  # load-modify-save of monitor.json within this process (GUI vs scheduler thread)
+SETTINGS_LOCK_WAIT = 10.0
 OUTCOME_LABELS = {'BASELINE_CREATED': '初期Baselineを自動作成', 'NO_BASELINE': '撮影のみ（Baseline未作成：撮影が不安定）',
                   'UNCHANGED': '変更なし', 'CHANGED': '変更を検知', 'UNKNOWN': '判定不能', 'FAILED': '検査に失敗',
                   'DISK_FULL': '保存容量の上限で停止', 'REAL_NOT_READY': '実サイト監視の準備待ち（撮影せず）',
@@ -98,6 +103,16 @@ class Monitor:
         tmp.write_text(json.dumps(settings, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
         os.replace(tmp, self.path)
 
+    @contextmanager
+    def settings_lock(self):
+        """load-modify-save of monitor.json: one at a time over threads AND processes (GUI, Windows task, setup tool)."""
+        with SETTINGS_LOCK:
+            try:
+                with filelock.held(self.site.root / 'monitor-settings.lock', wait=SETTINGS_LOCK_WAIT):
+                    yield
+            except filelock.LockBusy:
+                raise Busy('settings are being changed') from None
+
     def log(self, limit=10):
         if not self.log_path.is_file():
             return []
@@ -106,7 +121,7 @@ class Monitor:
 
     def update(self, now, interval_override=None, **changes):
         """Pause / resume / interval / offline fixture, from the GUI. Resuming never fires a burst: one inspection at most, when due."""
-        with SETTINGS_LOCK:
+        with self.settings_lock():
             return self._update(now, changes, interval_override)
 
     def _update(self, now, changes, interval_override=None):
@@ -156,8 +171,17 @@ class Monitor:
         return self.lock_path.exists()
 
     def disk(self):
-        """Bytes used by this site's folder (every saved inspection, workspace, Baseline) and the configured limit."""
-        used = sum(f.stat().st_size for f in self.site.root.rglob('*') if f.is_file())
+        """Bytes used by this unit's folder (every saved inspection, workspace, Baseline) and the configured limit. A site folder does not count its
+        pages/ (each further page is a unit of its own with its own limit): they are never counted twice."""
+        root, used = self.site.root, 0
+        for folder, dirs, files in os.walk(root):
+            if Path(folder) == root and sites.site_root_of(root) == root:
+                dirs[:] = [d for d in dirs if d != 'pages']
+            for name in files:
+                try:
+                    used += (Path(folder) / name).stat().st_size
+                except FileNotFoundError:  # a temporary file that was renamed meanwhile
+                    pass
         limit = self.load().get('disk_limit_bytes', DISK_LIMIT)
         return {'used': used, 'limit': limit, 'warn': used >= limit * DISK_WARN, 'full': used >= limit}
 
@@ -229,14 +253,14 @@ class Monitor:
             if disk['full']:
                 # Nothing is deleted: monitoring pauses safely and the user decides (raise the limit or free space elsewhere).
                 entry.update(outcome='DISK_FULL', mode=self.site.mode(), error=f"保存容量の上限に達しました（{disk['used']:,} / {disk['limit']:,} バイト）")
-                with SETTINGS_LOCK:
+                with self.settings_lock():
                     current = self.load()
                     current.update(enabled=False, paused_reason='DISK_FULL', last=entry)
                     self.save(current)
             elif hold:
                 # nothing is captured and no permit run is used: the USER's decision comes first; monitoring waits (paused) until resumed
                 entry.update(outcome='ON_HOLD', mode=self.site.mode(), error=hold + '（撮影せず、監視を一時停止しました）')
-                with SETTINGS_LOCK:
+                with self.settings_lock():
                     current = self.load()
                     current.update(enabled=False, paused_reason='ON_HOLD', last=entry)
                     self.save(current)
@@ -251,7 +275,8 @@ class Monitor:
                         # Not capturable for real: nothing is captured or generated; the entry says which gate is missing.
                         raise _NotReady('、'.join(c['label'] for c in real.readiness(now) if not c['ok']))
                     if mode == 'REAL':
-                        summary = real.capture(now)
+                        with filelock.held(sites.data_of(self.site.root) / 'capture.lock'):  # one real capture at a time over all sites and processes
+                            summary = real.capture(now)
                         if self.site.real_registry() is None and Site.approvable(summary) is None and not summary['compared']:
                             real.create_baseline(summary, now, AUTO_ACTOR)
                             created = True
@@ -263,6 +288,8 @@ class Monitor:
                     entry.update(outcome=classify(summary, created), run_id=summary['run_id'],
                                  profiles={k: {f: p.get(f) for f in ('verdict', 'reasons', 'changed_pixels', 'stability', 'compared', 'image_label', 'quality_label')}
                                            for k, p in summary['profiles'].items()})
+                except filelock.LockBusy:  # another site is being captured: not a result, nothing is recorded, still due
+                    raise Busy('another site is being captured') from None
                 except _NotReady as exc:
                     entry.update(outcome='REAL_NOT_READY', error='実サイト撮影の条件が整っていないため撮影しませんでした：' + str(exc))
                 except Exception as exc:  # recorded and shown; the schedule continues (no tight retry loop)
@@ -272,7 +299,7 @@ class Monitor:
                 interval = interval_override or settings['interval_seconds']
                 if entry.get('outcome') == 'REAL_NOT_READY':
                     interval = min(interval, NOT_READY_RETRY_SECONDS)
-                with SETTINGS_LOCK:
+                with self.settings_lock():
                     current = self.load()  # the GUI may have paused / changed the interval meanwhile
                     current['last'] = entry
                     current['next_due_at'] = format_utc(finished + timedelta(seconds=interval))
@@ -282,6 +309,12 @@ class Monitor:
                             current.update(enabled=False, paused_reason=stop)
                     self.save(current)
             entry.setdefault('finished_at', format_utc(now))
+            try:  # an image change / undecided / failed result that just APPEARED becomes one local notice (never on every inspection; never fatal)
+                from src.noxiworks import notifications
+                previous = (self.log(1) or [{}])[0].get('outcome')
+                notifications.image_event(notifications.Outbox(self.site.root), entry, previous, target_id=self.site.page_id, label=self.site.info['name'])
+            except Exception:
+                pass
             with self.log_path.open('a', encoding='utf-8') as f:
                 f.write(json.dumps(entry, ensure_ascii=False) + '\n')
             return entry
@@ -295,27 +328,40 @@ class Monitor:
 
 
 def main(argv=None):
-    """One pass for an OS scheduler: inspect the registered site if (and only if) it is due. Exit 0 also when nothing was due."""
+    """One pass for an OS scheduler: inspect every page of every registered site that is due (or --site only), one after the other, and nothing else.
+    One broken page or site never stops the others. Exit 0 also when nothing was due; 1 when an inspection failed."""
     from datetime import datetime, timezone
+    from src.noxiworks import sites
     from src.noxiworks.site_workflow import Site
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--data', type=Path, required=True, help='the app data folder (the one the app uses)')
+    parser.add_argument('--site', help='one site id (default: every registered site)')
     args = parser.parse_args(argv)
-    sites = sorted(p for p in (args.data / 'sites').glob('site-*') if (p / 'site.json').is_file()) if (args.data / 'sites').is_dir() else []
-    if not sites:
+    try:
+        roots = [sites.resolve(args.data, args.site)] if args.site else sites.folders(args.data)
+    except sites.SiteUnknown as exc:
+        parser.error(str(exc))
+    if not roots:
         print('no registered site')
-        return 0
-    monitor = Monitor(Site(sites[0]))
 
     def clock():
         return datetime.now(timezone.utc).replace(microsecond=0)
-    try:
-        entry = monitor.run_if_due(clock(), clock=clock)
-    except Busy:
-        print('busy: another inspection is running')
-        return 0
-    print('not due' if entry is None else f"{entry['outcome']} {entry.get('run_id') or entry.get('error')}")
-    return 0 if entry is None or entry['outcome'] != 'FAILED' else 1
+    failed = False
+    roots = [unit for root in roots for unit in sites.units(root)]  # the first page, then the further pages of each site
+    for root in roots:
+        name = root.name + ' ' if len(roots) > 1 else ''
+        try:
+            entry = Monitor(Site(root)).run_if_due(clock(), clock=clock)
+        except Busy:
+            print(name + 'busy: another inspection is running')
+            continue
+        except Exception as exc:  # one site never takes the others down
+            print(name + 'error: ' + type(exc).__name__)
+            failed = True
+            continue
+        print(name + ('not due' if entry is None else f"{entry['outcome']} {entry.get('run_id') or entry.get('error')}"))
+        failed = failed or (entry is not None and entry['outcome'] == 'FAILED')
+    return 1 if failed else 0
 
 
 if __name__ == '__main__':

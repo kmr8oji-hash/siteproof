@@ -76,7 +76,7 @@ IDENTITY_FILES = ('tests/runtime/netpolicy_hardened.py', 'tests/runtime/egress_b
                   'src/noxiworks/permit.py', 'src/noxiworks/product.py')
 REGISTRY_MOUNT = '/opt/siteproof-registry'
 TARGET_MOUNT = '/opt/siteproof-target'  # permit mode: the two signed-and-pinned target files, read-only, trusted containers only
-LEGACY_TARGET_ID, LEGACY_HOST = 'ttn-home', 'ttn-sample.test'
+LEGACY_TARGET_ID, LEGACY_HOST = 'ttn-home', 'tokyo-trouble-navi-review-ai-off-2026.kmr8oji.workers.dev'
 
 
 class IsolationLeak(RuntimeError):
@@ -514,7 +514,7 @@ def main():
 
         # ================================================================== GATE-A: OS egress CLOSED
         ok = True
-        other = 'noxiworks-sample.test' if host != 'noxiworks-sample.test' else 'example.org'  # a real, registered-elsewhere host that must still be refused
+        other = 'noxiworks.com' if host != 'noxiworks.com' else 'example.org'  # a real, registered-elsewhere host that must still be refused
         for bad in ({'hosts': ['example.com'], 'max_grants': 1}, {'hosts': [host], 'max_grants': 2}, {'hosts': [host, 'www.' + host], 'max_grants': 1}, {'hosts': [other], 'max_grants': 1}):
             try:
                 out, _ = launch.bounded(broker_check, json.dumps({'mode': 'system', 'real_site_access': True, 'target_id': target_id, 'device': device, 'ttl': TTL, **bad}).encode() + b'\n', seconds=20)

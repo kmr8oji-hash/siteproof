@@ -8,7 +8,7 @@ import ssl
 import unittest
 
 from src.aws_b.model import MonitorConfig
-from src.aws_b.probe import (MAX_RESPONSE_HEAD_BYTES, build_request, parse_status_line,
+from src.aws_b.probe import (MAX_RESPONSE_HEAD_BYTES, IncompleteStatusLine, build_request, parse_status_line,
                              read_status_line, run_probe)
 from src.core.model import CheckOutcome
 from tests.aws_b.support import ENV
@@ -195,6 +195,37 @@ class HttpFraming(unittest.TestCase):
         with self.assertRaises(TimeoutError):
             read_status_line(lambda size: b"H", deadline=1.0, clock=lambda: 2.0)
         self.assertEqual(read_status_line(lambda size: b"", deadline=1.0, clock=lambda: 0.0), b"")
+
+    def test_an_unterminated_status_line_is_never_a_status(self):
+        """EOF inside a line without CRLF: the bytes read so far must not become a verdict (a cut-off "HTTP/1.1 200" is not a 200)."""
+        for partial in (b"HTTP/1.1 200 OK", b"HTTP/1.1 200", b"HTTP/1.1 20", b"H", b"HTTP/1.1 200 OKHTTP/1.1 200 OK"):
+            with self.subTest(partial):
+                chunks = iter([partial, b""])
+                with self.assertRaises(IncompleteStatusLine):
+                    read_status_line(lambda size: next(chunks), deadline=10.0, clock=lambda: 0.0)
+
+    def test_incomplete_is_not_the_same_as_a_timeout_or_nothing_at_all(self):
+        self.assertTrue(issubclass(IncompleteStatusLine, ValueError) and not issubclass(IncompleteStatusLine, TimeoutError))
+        with self.assertRaises(TimeoutError):  # a deadline stays a TimeoutError
+            read_status_line(lambda size: b"H", deadline=1.0, clock=lambda: 2.0)
+        self.assertEqual(read_status_line(lambda size: b"", deadline=1.0, clock=lambda: 0.0), b"")  # nothing at all: still no line, never a status
+
+    def test_complete_lines_still_read_whole_and_the_cap_still_holds(self):
+        for line in (b"HTTP/1.1 200 OK", b"HTTP/1.1 503 Service Unavailable"):
+            chunks = iter([line[:5], line[5:] + b"\r\nServer: x\r\n\r\nbody"])
+            self.assertEqual(read_status_line(lambda size: next(chunks), deadline=10.0, clock=lambda: 0.0), line)
+        endless = iter([b"A" * 4096] * 10)
+        with self.assertRaises(ValueError) as refused:
+            read_status_line(lambda size: next(endless), deadline=10.0, clock=lambda: 0.0)
+        self.assertNotIsInstance(refused.exception, IncompleteStatusLine)  # over the 16 KiB cap is its own refusal
+        self.assertEqual(MAX_RESPONSE_HEAD_BYTES, 16384)
+
+    def test_an_incomplete_line_is_undecided_not_pass_and_not_a_site_failure(self):
+        result, dialled, _ = probe(transport=FakeTransport(error=IncompleteStatusLine("cut")))
+        self.assertEqual((result.outcome, result.reason, result.http_status), (CheckOutcome.UNKNOWN, "HTTP_INCOMPLETE", None))
+        self.assertEqual(dialled[0].closed, 1)
+        result, _, _ = probe(transport=FakeTransport(error=TimeoutError()))
+        self.assertEqual((result.outcome, result.reason), (CheckOutcome.FAIL, "HTTP_TIMEOUT"))  # a timeout is still a different, observed failure
 
 
 if __name__ == "__main__":

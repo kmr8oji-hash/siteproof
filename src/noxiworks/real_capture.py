@@ -1,16 +1,20 @@
 """Real-site capture for the registered site: the existing harness tests/runtime/validate_s3t.py behind a SIGNED monitoring permit.
 
 The app never captures a real site by itself. RealCapture.capture() runs only when ALL of readiness() hold:
-  1. owner        the signed permit records an ownership check (method + time; CLOUDFLARE_ACCOUNT_CONTROL also matches the host and the
-                  pinned evidence file, permit.cloudflare_ownership_problems); the self-declaration at registration is not enough
+  1. owner        the signed permit records an ownership check whose evidence is really verified (CLOUDFLARE_ACCOUNT_CONTROL: the host and
+                  the pinned evidence file, permit.cloudflare_ownership_problems; DNS_TXT_CHALLENGE: the site id, the exact host, the token
+                  and the pinned evidence file, permit.dns_ownership_problems); a method that cannot be verified (well-known-file,
+                  dns-txt) is refused, and the self-declaration at registration is not enough
   2. permission   <site>/real/permit.json is validly signed (src/noxiworks/permit.py: OpenSSH `ssh-keygen -Y verify` against the USER's
                   <data>/trust/allowed_signers) and covers this site, page, host, the hash-pinned targets.json / capture_plan.json of
                   the site, this moment (valid_from..valid_until) and one more run (max_runs; the harness counts runs in <data>/trust/permit-ledger)
   3. identity     the permit's identity pins (harness, Worker, broker, reaper, network rules, target files ...) equal the current files,
                   an image ID is pinned; after the Baseline: the permit allows comparing (AUTO_INITIAL_THEN_COMPARE) and the Baseline
                   was created under this same permit
-  4. environment  the Docker CLI and ssh-keygen exist (the harness checks the image, owns every container; this module starts none)
+  4. environment  the Docker engine answers and ssh-keygen exists (the harness owns every container; this module starts none)
   5. harness      the page is a top page `/` (the harness Worker and the broker accept nothing else)
+  6. image        the permit's image ID is the one the harness requires, and the engine has exactly that image (read-only `docker image
+                  inspect`; nothing is pulled or built) -- otherwise the harness would fail only after counting the run
 Then it runs the harness in a separate process with --permit / --trust / --target-dir, the --expect derived from the signed identity
 (permit.derive_expect: + the Baseline pins in compare mode, nothing else), SITEPROOF_* overrides removed. The harness re-verifies the
 signature, the target files and the derived --expect before any container starts; DNS-resolved single IPv4:443 grant, broker / proxy
@@ -31,6 +35,7 @@ from urllib.parse import urlsplit
 
 from src.aws_b.model import format_utc
 from src.noxiworks import permit as permits
+from src.noxiworks import sites
 
 ROOT = Path(__file__).resolve().parents[2]
 HARNESS = 'tests/runtime/validate_s3t.py'
@@ -49,6 +54,36 @@ def docker_engine_answers(max_age=60):
             ok = False
         _ENGINE.update(at=time.monotonic(), ok=ok)
     return _ENGINE['ok']
+
+
+# Ownership methods the app and the setup tool refuse to start: nothing here can verify them (permit.ownership_problems refuses them too),
+# so a permit made with one could never capture. The one method that works is CLOUDFLARE_ACCOUNT_CONTROL (workers.dev hosts).
+UNSUPPORTED_OWNERSHIP = ('well-known-file', 'dns-txt')
+UNSUPPORTED_OWNERSHIP_MESSAGE = ('この所有権の確認方法（確認用ファイル・自己申告のdns-txt）には現在対応していません。'
+                                 '対応しているのは、workers.devのサイトをCloudflareのアカウントで確認する方法と、'
+                                 'DNSのTXTチャレンジ（tools/dns_ownership.py で確認した記録）です。何も変更していません')
+
+_IMAGE = {'at': 0.0, 'asked': None, 'id': None}  # docker image inspect, cached as briefly as the engine
+
+
+def docker_image_id(image_id, max_age=60):
+    """The Id the engine reports for this image: the same read-only `image inspect`, in the same Docker context, as the harness (never a
+    pull, build or tag). '' = the engine has no such image; None = it could not be asked (fail-closed: the caller treats both as not ready)."""
+    if _IMAGE['asked'] != image_id or time.monotonic() - _IMAGE['at'] >= max_age:
+        found = None
+        try:
+            p = subprocess.run(['docker', '--context', 'desktop-linux', 'image', 'inspect', '--format', '{{.Id}}', image_id],
+                               capture_output=True, timeout=15)
+            if p.returncode == 0:
+                found = p.stdout.decode('utf-8', 'replace').strip() or None
+            elif b'no such image' in p.stderr.lower():
+                found = ''
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        _IMAGE.update(at=time.monotonic(), asked=image_id, id=found)
+    return _IMAGE['id']
+
+
 # The identity must pin at least these (the harness, its Workers, the network controls, the shared permit verifier and the code that
 # reads the target files): what decides WHERE a run may connect can never change between signing and capture.
 REQUIRED_PINS = ('tests/runtime/validate_s3t.py', 'tests/runtime/s3t_worker.py', 'tests/runtime/s3_worker.py', 'tests/runtime/egress_broker.py',
@@ -106,7 +141,7 @@ class RealCapture:
     def __init__(self, site, docker_found=None, runner=None):
         self.site = site
         self.dir = site.root / 'real'
-        self.trust = site.root.parents[1] / 'trust' / 'allowed_signers'  # <data>/trust: placed by the USER, never written by the app
+        self.trust = sites.data_of(site.root) / 'trust' / 'allowed_signers'  # <data>/trust: placed by the USER, never written by the app
         self.docker_found = docker_found  # tests inject True/False; None (the real app) = decided lazily by _engine()
         self.runner = runner or self._subprocess
 
@@ -273,7 +308,29 @@ class RealCapture:
             return False
         return docker_engine_answers() if gates_ok else None
 
-    def readiness(self, now):
+    def _image_check(self, permit, gates_ok, fresh):
+        """-> (ok, state). The permit's image ID against the one the harness requires (read from its source), then against the image the
+        engine really has. The engine is asked only when every other gate holds; nothing is fetched, built or replaced."""
+        if permit is None:
+            return False, '署名付きの監視許可がないため、まだ確認していません'
+        from tools.permit_draft import harness_constants
+        required = harness_constants()[1]
+        if (permit.get('identity') or {}).get('image_id') != required:
+            return False, '監視許可の撮影イメージIDが、撮影ハーネスの要求するイメージIDと一致しません（撮影しません）'
+        if self.docker_found is not None:  # an injected (offline test) environment: the real Docker is never asked
+            return self.docker_found, '一致' if self.docker_found else 'Dockerが応答しないため、確認していません'
+        if not gates_ok:
+            return False, '他の条件が整ってから確認します（現在は確認していません）'
+        found = docker_image_id(required, 0) if fresh else docker_image_id(required)
+        if found is None:
+            return False, '撮影イメージを確認できませんでした（Dockerが応答しません。撮影しません）'
+        if found == '':
+            return False, '撮影イメージがこのPCにありません（撮影しません。許可の回数は消費していません）'
+        if found != required:
+            return False, '撮影イメージのIDが、監視許可のイメージIDと一致しません（撮影しません。許可の回数は消費していません）'
+        return True, '一致（許可・ハーネス・このPCのイメージ）'
+
+    def readiness(self, now, fresh=False):
         info = self.site.info
         permit, error = self.permit()
         scope = permits.check_scope(permit, site_info=info, page_id=self.site.page_id, target_dir=self.site.root, now=now,
@@ -286,7 +343,8 @@ class RealCapture:
                        'state': (f"確認済み（{own['method']}・{own['verified_at']}・署名付き許可に記録）" if own_ok
                                  else '未確認：' + '、'.join(own_problems) if permit and own.get('method') else '未確認（自己申告のみ）'),
                        'guide': 'サイト登録時の「自分が管理するサイト」の確認だけでは撮影しません。下の「初回セットアップ」で所有権を確認します'
-                                '（workers.devのサイトはCloudflareのアカウントで自動確認、それ以外は確認用ファイルかDNSのTXTレコード）。'})
+                                '（対応しているのは、workers.devのサイトのCloudflareアカウント確認と、DNSのTXTチャレンジ［このホストのTXTレコードを利用者が確認］です。'
+                                '確認用ファイルと自己申告のdns-txtは自動照合できないため、撮影を開始できません）。'})
         scope_only = [p for p in scope if not p.startswith(('所有権', '撮影構成'))]
         checks.append({'key': 'permission', 'label': '監視許可（署名付き：対象・期間・回数）', 'ok': bool(permit) and not scope_only,
                        'state': (f"有効（{permit['permit_id']}・{permit['valid_until']}まで・残り{permit['max_runs'] - self.used(permit)}回）"
@@ -302,14 +360,17 @@ class RealCapture:
         top = urlsplit(info['url']).path == '/'
         engine = self._engine(all(c['ok'] for c in checks) and not id_problems and top)
         checks.append({'key': 'environment', 'label': '撮影環境（Docker・署名検証）', 'ok': bool(engine) and tool,
-                       'state': ('Docker CLI・ssh-keygen あり（撮影イメージの照合と隔離の確認は撮影ハーネスが起動前に行います）' if engine and tool
+                       'state': ('Docker CLI・ssh-keygen あり（隔離の確認は撮影ハーネスが起動前に行います）' if engine and tool
                                  else 'Dockerの確認は、署名付き許可など他の条件が整ってから行います（現在は確認していません）' if engine is None and tool
                                  else '・'.join(x for x, ok in (('Docker Desktopが起動していません（Dockerのエンジンが応答しません）', engine is not False),
                                                                 ('ssh-keygenが見つかりません', tool)) if not ok)),
                        'guide': 'Docker Desktop が起動している必要があります。止まっているときは「Docker Desktopを起動」を押してください。'})
         checks.append({'key': 'harness', 'label': '実撮影ハーネスの対応', 'ok': top and not path_problem,
                        'state': (path_problem or '対応（署名付き許可の対象を撮影）') if top else 'トップページ（/）以外は未対応',
-                       'guide': 'SiteProofが撮影するのは、登録したサイトのトップページ（/）だけです。'})
+                       'guide': 'SiteProofが撮影するのは、登録したサイトのトップページ（/）だけです。追加したページは画像撮影できません（別のページの画像で代用することもしません）。'})
+        image_ok, image_state = self._image_check(permit, all(c['ok'] for c in checks), fresh)
+        checks.append({'key': 'image', 'label': '撮影イメージ（Docker）', 'ok': image_ok, 'state': image_state,
+                       'guide': '監視許可が固定した撮影イメージが、このPCのDockerに必要です。SiteProofはイメージの取得・ビルド・置き換えを行いません。'})
         return checks
 
     def _identity_problems(self, permit):
@@ -348,7 +409,7 @@ class RealCapture:
         return json.loads(f.read_text('utf-8')) if f.is_file() else {}
 
     def ready(self, now):
-        return all(c['ok'] for c in self.readiness(now))
+        return all(c['ok'] for c in self.readiness(now, fresh=True))  # decides a capture: the image is asked now, not from the screen's cache
 
     # ---- one real capture through the harness
     @staticmethod
@@ -360,7 +421,7 @@ class RealCapture:
     def capture(self, now):
         from src.noxiworks.local_capture import LocalCaptureRefused, load
         from src.noxiworks.baseline_registry import read as read_registry
-        checks = self.readiness(now)
+        checks = self.readiness(now, fresh=True)
         missing = [c['label'] + '：' + c['state'] for c in checks if not c['ok']]
         if missing:
             raise RealCaptureRefused('実サイト撮影の条件が整っていません：' + ' ／ '.join(missing))

@@ -132,15 +132,21 @@ class SetupButtons(unittest.TestCase):
         for never in ('--yes', '--no-passphrase', '--key', '-Y', 'sign'):  # the USER confirms and signs in that window
             self.assertNotIn(never, cmd)
 
-    def test_other_sites_need_the_users_own_check_first(self):
+    def test_other_sites_have_no_supported_ownership_method_yet(self):
         app = self.app('https://my-site.com/')
         with self.assertRaises(ValueError):
             app.site_action('setup', {'step': 'setup', 'ownership': 'cloudflare'})  # not a workers.dev host
-        with self.assertRaises(ValueError):
-            app.site_action('setup', {'step': 'setup', 'ownership': 'well-known-file'})  # not confirmed
-        app.launcher.assert_not_called()
-        app.site_action('setup', {'step': 'setup', 'ownership': 'dns-txt', 'confirmed': True})
-        self.assertIn('--verified-at', app.launcher.call_args[0][0])
+        with self.assertRaises(ValueError) as nothing:
+            app.site_action('setup', {'step': 'setup'})  # no method at all
+        self.assertIn('まだありません', str(nothing.exception))
+        for method in ('well-known-file', 'dns-txt'):
+            for body in ({'ownership': method}, {'ownership': method, 'confirmed': True}):
+                with self.subTest(body):
+                    with self.assertRaises(ValueError) as refused:
+                        app.site_action('setup', {'step': 'setup', **body})
+                    self.assertIn('現在対応していません', str(refused.exception))
+        app.launcher.assert_not_called()  # no setup window, no status file
+        self.assertFalse((app.site.root / 'setup-status.json').exists())
 
     def test_docker_and_background_buttons(self):
         app = self.app('https://my-site.com/')
@@ -231,7 +237,7 @@ class DisplayStatesAndBackground(unittest.TestCase):
         from tools import setup_monitoring
         setup_monitoring.write_status(self.app.site.root, 'FAILED', 'x')
         self.assertEqual(self.app.site_status()['display'], 'SETUP_NEEDED')  # a failed setup leaves it to be done
-        with mock.patch.object(self.app, 'permit_info', return_value={'expired': True, 'warning': True, 'permit_id': 'p', 'valid_until': 'x',
+        with mock.patch.object(self.app.first, 'permit_info', return_value={'expired': True, 'warning': True, 'permit_id': 'p', 'valid_until': 'x',
                                                                       'remaining_runs': 0, 'days_left': -1}):
             self.assertEqual(self.app.site_status()['display'], 'EXPIRED')
         self.app.site_action('monitor', {'enabled': False})
@@ -240,7 +246,7 @@ class DisplayStatesAndBackground(unittest.TestCase):
     def test_background_state_and_removal(self):
         self.assertIs(self.app.site_status()['background'], False)
         self.app.site_status()
-        self.assertEqual(self.app.background_query.call_count, 1)  # asked once a minute at most
+        self.assertEqual([c.args[2] for c in self.app.background_query.call_args_list], ['image', 'http'])  # each channel asked once a minute at most
         self.app.site_action('setup', {'step': 'background-remove'})
         self.assertEqual(self.app.launcher.call_args[0][0][2:4], ['tools/background_monitor.py', 'remove'])
         self.app.background_query.return_value = True

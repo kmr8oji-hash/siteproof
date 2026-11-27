@@ -158,14 +158,17 @@ def run(site_root, host, wrangler=None):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--data', type=Path, required=True)
+    parser.add_argument('--site', help='site id; required when several sites are registered')
     parser.add_argument('--wrangler')
     args = parser.parse_args(argv)
-    sites = sorted(p for p in (args.data / 'sites').glob('site-*') if (p / 'site.json').is_file())
-    if not sites:
-        parser.error('no registered site in ' + str(args.data))
-    host = json.loads((sites[0] / 'site.json').read_text('utf-8'))['url'].split('/')[2]
+    from src.noxiworks import sites
     try:
-        f = run(sites[0], host, args.wrangler)
+        root = sites.resolve(args.data, args.site)
+    except sites.SiteUnknown as exc:
+        parser.error(str(exc))
+    host = json.loads((root / 'site.json').read_text('utf-8'))['url'].split('/')[2]
+    try:
+        f = run(root, host, args.wrangler)
     except OwnershipCheckFailed as exc:
         print('所有権を確認できませんでした：' + str(exc))
         return 1

@@ -3,7 +3,7 @@ import unittest
 
 from tests.runtime.negative_guard import NegativeTestRefused, proxied_negatives, refuse_registered_host
 
-HOST = 'ttn-sample.test'
+HOST = 'tokyo-trouble-navi-review-ai-off-2026.kmr8oji.workers.dev'
 
 
 class NegativeGuardTests(unittest.TestCase):

@@ -89,7 +89,7 @@ class UserSiteAws(unittest.TestCase):
         text = ''.join((out / name).read_text('utf-8') for name in ('index.html', 'activity.html', 'details.html'))
         self.assertIn('MySite', text)
         self.assertIn('503', text)
-        for author in ('noxiworks-sample.test', 'Tokyo Trouble Navi', '5サイトの監視'):
+        for author in ('noxiworks.com', 'Tokyo Trouble Navi', '5サイトの監視'):
             self.assertNotIn(author, text)
 
 

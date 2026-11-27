@@ -502,7 +502,7 @@ class PagesAndScript(unittest.TestCase):
             text = (ROOT / 'src/noxiworks' / name).read_text('utf-8')
             body = text.split('def run(self', 1)[1].split('def run_if_due', 1)[0]
             self.assertNotIn('update_baseline', body)
-        text = (ROOT / 'src/noxiworks/app.py').read_text('utf-8')
+        text = ''.join((ROOT / 'src/noxiworks' / n).read_text('utf-8') for n in ('app.py', 'site_app.py'))
         self.assertEqual(text.count('update_baseline('), 1)   # the one route, behind the token and the explicit confirmation
 
 

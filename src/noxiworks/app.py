@@ -1,11 +1,14 @@
 """SiteProof local app: the existing HOME / REVIEW / ACTIVITY pages plus the user's own site and the synthetic demo. No AWS, no real site.
 
-The user's site (src/noxiworks/site_workflow.py): サイトを追加 -> capture (offline fixture) -> the user approves the Baseline ->
-later captures are compared. Its pages are served at / and generated with SITEPROOF_TARGETS / SITEPROOF_CAPTURE_PLAN pointing at the
-site's own files, so only that site is shown. The synthetic demo below is served at /demo/ only; / shows an empty dashboard until
-a site is registered, and a site that cannot be captured for real is never monitored with generated images.
+The user's sites (src/noxiworks/site_workflow.py, one src/noxiworks/site_app.SiteApp each): サイトを追加 -> capture -> the user approves the
+Baseline -> later captures are compared. A site's pages are served at /site/<site id>/ (its first page) and /site/<site id>/page/<page id>/ (up to four
+further pages of the same host, each a unit folder of its own: only the site's ownership evidence and e-mail switch are shared; every action names `site_id`
+and `unit`, and `unit` may be left out only while the site has one page) and show that site only; / shows the only site, the list of
+all sites (全サイトの状態) once there are several, or an empty dashboard until one is registered. Every action names its site id; without one it
+is accepted only while a single site is registered, so a stale tab can never act on another site. The synthetic demo below is served at /demo/
+only, and a site that cannot be captured for real is never monitored with generated images.
 
-Run: py -3.15 -B -m src.noxiworks.app [--data DIR] [--port N] [--no-browser]
+Run: py -3.15 -B -m src.noxiworks.app [--data DIR [--remember]] [--where] [--port N] [--no-browser]
 
 The pages are the static export of `python -m src.noxiworks` (unchanged design), regenerated from the app's own data folder
 after every inspection and at every start, so saved history survives a restart. One action is added: POST /app/api/run runs
@@ -14,7 +17,7 @@ via tools/offline_capture_compare.run_case) against the app's synthetic, approve
 stand-in that hands back stored or edited Baseline bytes: no browser, no socket, nothing leaves the machine. Every page says
 サンプルデータ（デモ）/ 合成デモ; real captures and AWS data are never mixed in (local_capture refuses that).
 
-Data folder (default %LOCALAPPDATA%\\SiteProof or ~/.local/share/siteproof; never .local or a fixed drive):
+Data folder (default %LOCALAPPDATA%\\SiteProof or ~/.local/share/siteproof, or the folder remembered with --remember in <that>/settings.json; never a fixed drive):
   registry/   synthetic Baseline registry, created once (Desktop 1440 / Mobile 390, approved by a synthetic actor)
   runs/<id>/  one saved inspection each: <id>/ (S1 workspace + SQLite + run results + diff PNGs, export-sha256.json), result.json
   ui/<gen>/   generated pages; the newest is served
@@ -22,7 +25,6 @@ Security: 127.0.0.1 only; POST needs the exact Host/Origin, JSON, a custom heade
 same-origin page can read (no CORS headers are ever sent). One inspection at a time.
 """
 import argparse
-from datetime import datetime, timezone
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -36,7 +38,8 @@ import sys
 import threading
 import webbrowser
 
-from src.noxiworks.uiview import explain_failure, monitor_view
+from src.noxiworks import sites as site_folders
+from src.noxiworks.site_app import SiteApp, utc_now
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = {'unchanged': ('変更なし（Baselineと同じ画像）', 'NO_VISUAL_CHANGE_DETECTED'),
@@ -47,19 +50,20 @@ TYPES = {'.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',
 RUN_ID = re.compile(r'^\d{8}T\d{6}Z-\d{2}-(unchanged|changed|unstable)$')
 KEEP_UI = 2
 SITE_ROUTES = ('/app/api/site/register', '/app/api/site/inspect', '/app/api/site/monitor', '/app/api/site/confirm', '/app/api/site/setup',
-               '/app/api/site/baseline-update', '/app/api/site/baseline-approve')
+               '/app/api/site/baseline-update', '/app/api/site/baseline-approve', '/app/api/site/http', '/app/api/site/notify', '/app/api/site/maintenance',
+               '/app/api/site/backup', '/app/api/site/add-page', '/app/api/site/stop-site')
 
 
-RENEW_WARNING_DAYS, RENEW_WARNING_RUNS = 7, 5  # HOME suggests "監視設定を更新" from here on
+MAX_SITES = 20
 
 
-def query_background_task(data):
-    """Read-only `schtasks /Query` for this data folder's task (tools/background_monitor.task_name). None when it cannot be asked."""
+def query_background_task(data, site_id, channel):
+    """Read-only `schtasks /Query` for this site's task of this data folder (tools/background_monitor.task_name). None when it cannot be asked."""
     if os.name != 'nt':
         return None
     from tools.background_monitor import task_name  # the app runs from the project folder (python -m src.noxiworks.app)
     flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
-    p = subprocess.run(['schtasks', '/Query', '/TN', task_name(data)], capture_output=True, timeout=10, creationflags=flags)
+    p = subprocess.run(['schtasks', '/Query', '/TN', task_name(data, site_id, channel)], capture_output=True, timeout=10, creationflags=flags)
     return p.returncode == 0
 
 
@@ -80,13 +84,50 @@ def launch_detached(args, console=False):
                             stderr=None if console else subprocess.DEVNULL)
 
 
-def default_data():
+class DataFolderError(ValueError):
+    pass
+
+
+def base_folder():
     base = os.environ.get('LOCALAPPDATA')
     return Path(base) / 'SiteProof' if base else Path.home() / '.local' / 'share' / 'siteproof'
 
 
-def utc_now():
-    return datetime.now(timezone.utc).replace(microsecond=0)
+def settings_file():
+    return base_folder() / 'settings.json'
+
+
+def default_data():
+    """The folder remembered with --remember (<base>/settings.json {data_folder}), else the base folder itself. A remembered folder that cannot be used
+    is an error with its reason: the app never falls back to another (empty) folder by itself."""
+    f = settings_file()
+    if not f.is_file():
+        return base_folder()
+    try:
+        value = json.loads(f.read_text('utf-8'))['data_folder']
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError
+    except (OSError, ValueError, KeyError, TypeError):
+        raise DataFolderError(f'保存した設定 {f} を読めません。--data でフォルダを指定するか、この設定ファイルを確認してください（何も変更していません）') from None
+    if not Path(value).is_dir():
+        raise DataFolderError(f'前に選んだデータフォルダ {value} が見つかりません（ドライブや外付けディスクが接続されていないかもしれません）。接続し直すか、--data で指定してください。'
+                              f'別の空のフォルダで勝手に始めることはしません。既定のフォルダに戻すなら {f} を削除してください（データは削除されません）')
+    return Path(value)
+
+
+def remember_data(folder):
+    """Write <base>/settings.json {data_folder} (atomically), only when the folder exists or can be created. Never moves or copies data. -> the settings file."""
+    folder = Path(folder).resolve()
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise DataFolderError(f'フォルダ {folder} を作れないため、記憶しません（{type(exc).__name__}）') from None
+    f = settings_file()
+    f.parent.mkdir(parents=True, exist_ok=True)
+    tmp = f.with_name(f.name + '.tmp')
+    tmp.write_text(json.dumps({'schema': 'siteproof.settings.v1', 'data_folder': str(folder)}, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    os.replace(tmp, f)
+    return f
 
 
 class App:
@@ -94,21 +135,20 @@ class App:
         self.data = Path(data).resolve()
         self.interval_override = interval_override  # --check-every (testing): seconds between scheduled inspections
         self.stop_event = threading.Event()
-        self.site_shown = self.site_rendered = self.site_archive = None
         self.docker_found = self.real_runner = None  # injectable for offline tests only; the app itself never sets them
         self.launcher = launch_detached  # starts the USER-facing setup console / Docker Desktop / schtasks; tests replace it
         self.background_query = query_background_task  # is this data folder's Windows task registered? (read-only; tests replace it)
-        self._background = (0.0, None)
         self.fixture_capture = False  # tests of the monitoring engine only (serve(..., fixture_capture=True)); never from the GUI / CLI
-        self._disk = None
-        self.lock = threading.Lock()
+        self.lock = threading.Lock()  # page generation and inspections, one at a time over all sites
         self.token = secrets.token_urlsafe(24)
         self.state = {'running': None, 'last': None, 'error': None}
         self.ui = None          # the synthetic demo pages (served under /demo/ only)
         self.empty_ui = None    # / before a site is registered: no targets, no synthetic data
-        self.site = None        # the user-registered site (site_workflow.Site), at most one in MVP v1.0
-        self.site_ui = None
-        self.site_error = None
+        self.sites = {}         # site id -> SiteApp, in order of registration
+        self.site_problems = []  # folders under sites/ that are not used, with the reason
+        self.http_probe = None  # injected by offline tests only; the app itself never sets it (the real probe stays off until approved)
+        self.notify_provider = None  # the same for e-mail (the real provider stays off until approved)
+        self._storage = self._environment = None
 
     # ---- data folder
     def setup(self):
@@ -133,18 +173,99 @@ class App:
         sites.mkdir(exist_ok=True)
         for leftover in sites.glob('.tmp-*'):  # a registration interrupted by a crash or a stop
             shutil.rmtree(leftover, ignore_errors=True)
-        found = sorted(p for p in sites.iterdir() if p.name.startswith('site-') and (p / 'site.json').is_file())
-        if found:
-            from src.noxiworks.site_workflow import Site
-            self.site = Site(found[0])
-            if not (self.site.root / 'monitor.json').is_file():  # registered before automatic monitoring existed
-                from src.noxiworks.site_monitor import Monitor
-                Monitor.create(self.site, utc_now())
-            for leftover in list((self.site.root / 'runs').glob('.tmp-*')) + [self.site.root / '.tmp-registry']:
+        from src.noxiworks.site_monitor import Monitor
+        from src.noxiworks.site_workflow import Site
+        found, self.site_problems = site_folders.scan(self.data)
+        for folder in found:
+            one = SiteApp(self, Site(folder))
+            for name in ('runs', 'ui'):  # empty folders do not survive a backup and its restore
+                (folder / name).mkdir(exist_ok=True)
+            if not (folder / 'monitor.json').is_file():  # registered before automatic monitoring existed
+                Monitor.create(one.site, utc_now())
+            for leftover in list((folder / 'runs').glob('.tmp-*')) + [folder / '.tmp-registry']:
                 shutil.rmtree(leftover, ignore_errors=True)
-            self.rebuild_site()
+            self.sites[folder.name] = one
+            try:
+                one.rebuild()
+            except Exception as exc:  # its error is on its panel (also with one site: the app still opens and says why); the other sites are served
+                one.error = one.error or type(exc).__name__ + ': ' + str(exc)[:200]
+            self.load_pages(one)
         self.rebuild_empty()
         self.state['started_at'] = format_utc(utc_now())
+
+    def load_pages(self, one):
+        """The further pages of a site (<site>/pages/*): each a SiteApp of its own. A broken page is listed in site_problems and never stops the site or its other pages."""
+        from src.noxiworks.site_monitor import Monitor, default_settings
+        from src.noxiworks.site_workflow import Site
+        found, bad = site_folders.pages(one.site.root)
+        self.site_problems += [(f'{one.site.root.name}/pages/{name}', why) for name, why in bad]
+        for leftover in (one.site.root / 'pages').glob('.tmp-*') if (one.site.root / 'pages').is_dir() else ():  # a page registration interrupted by a crash
+            shutil.rmtree(leftover, ignore_errors=True)
+        pages = {}
+        for folder in found:
+            try:
+                page = SiteApp(self, Site(folder), parent=one)
+                for name in ('runs', 'ui'):
+                    (folder / name).mkdir(exist_ok=True)
+                if not (folder / 'monitor.json').is_file():  # a page starts with image monitoring OFF
+                    Monitor(page.site).save({**default_settings(utc_now()), 'enabled': False, 'next_due_at': None})
+                for leftover in list((folder / 'runs').glob('.tmp-*')) + [folder / '.tmp-registry']:
+                    shutil.rmtree(leftover, ignore_errors=True)
+                pages[folder.name] = page
+            except Exception as exc:
+                self.site_problems.append((f'{one.site.root.name}/pages/{folder.name}', type(exc).__name__ + ': ' + str(exc)[:120]))
+                continue
+            try:
+                page.rebuild()
+            except Exception as exc:
+                page.error = page.error or type(exc).__name__ + ': ' + str(exc)[:200]
+        one.pages = pages
+
+    def units(self):
+        """Every page of every site (the first pages and the further ones): what the schedulers walk."""
+        return [u for one in list(self.sites.values()) for u in one.units()]
+
+    # ---- the registered sites
+    def pick_site(self, site_id=None):
+        """The SiteApp (first page) a request is about: the named one, or the only one. Never a guess between several."""
+        if site_id is not None:
+            one = self.sites.get(site_id) if isinstance(site_id, str) else None
+            if one is None:
+                raise ValueError('指定されたサイトは登録されていません')
+            return one
+        if not self.sites:
+            raise ValueError('先にサイトを登録してください')
+        if len(self.sites) > 1:
+            raise ValueError('どのサイトの操作かを確認できません。画面を開き直してください（サイトが複数登録されています）')
+        return next(iter(self.sites.values()))
+
+    def pick(self, site_id=None, unit=None):
+        """The SiteApp of one page: `unit` is its folder name (the site id for the first page, else the page id). It may be left out only while the site
+        has a single page: a tab opened before another page was added must never act on the wrong one."""
+        one = self.pick_site(site_id)
+        if unit is None:
+            if one.pages:
+                raise ValueError('どのページの操作かを確認できません。画面を開き直してください（このサイトにはページが複数あります）')
+            return one
+        if unit == one.unit:
+            return one
+        page = one.pages.get(unit) if isinstance(unit, str) else None
+        if page is None:
+            raise ValueError('指定されたページは登録されていません')
+        return page
+
+    @property
+    def first(self):
+        return next(iter(self.sites.values()), None)
+
+    @property
+    def site(self):
+        """The (first) registered site, or None: for one-site data folders, the setup tools and tests."""
+        return self.first.site if self.sites else None
+
+    @site.setter
+    def site(self, site):
+        self.sites = {site.info['site_id']: SiteApp(self, site)}
 
     def runs(self):
         """Saved inspections, oldest first. Each is runs/<id>/<id> (the run directory carries its id as its name)."""
@@ -189,331 +310,192 @@ class App:
         self.ui = self.generate(self.data / 'ui', self.runs(), self.data / 'registry')
         return self.ui
 
+    # ---- one-site shorthands (the only / first site)
+    site_ui = property(lambda self: self.first.ui if self.sites else None)
+    site_error = property(lambda self: self.first.error if self.sites else None)
+    permit_info = SiteApp.permit_info  # it needs the permit and the clock only
+
     def rebuild_site(self):
-        """The user's site pages: the unchanged CLI pointed at the site's own targets / capture plan (only that site is shown)."""
-        from src.aws_b.model import format_utc
-        from src.noxiworks.monitoring import SCHEDULE_SCHEMA
-        site = self.site
-        env = {'SITEPROOF_TARGETS': str(site.root / 'targets.json'), 'SITEPROOF_CAPTURE_PLAN': str(site.root / 'capture_plan.json')}
-        display = self.display_targets(site)
-        if display:
-            env['SITEPROOF_DISPLAY_TARGETS'] = str(display)
-        try:
-            # The pages' own schedule view (監視の状態) gets the monitor's real state: its interval and a provider record for the image
-            # channel. HTTP is not monitored by the app, so it stays "Provider管理・未確認".
-            settings = self.monitor().load() if (site.root / 'monitor.json').is_file() else None
-            if settings:
-                targets = json.loads((site.root / 'targets.json').read_text('utf-8'))
-                targets['capture_interval_seconds'] = self.interval_override or settings['interval_seconds']
-                (site.root / 'targets.json').write_text(json.dumps(targets, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-                last = settings['last'] or {}
-                record = [{'schema': SCHEDULE_SCHEMA, 'target_id': site.page_id, 'channel': 'capture', 'enabled': settings['enabled'],
-                           'last_finished_at': last.get('finished_at'), 'last_outcome': ('FAILED' if last.get('outcome') == 'FAILED' else 'COMPLETED') if last else None,
-                           'next_due_at': settings['next_due_at'] if settings['enabled'] else None, 'observed_at': format_utc(utc_now()),
-                           'source': 'SiteProofアプリの自動監視（このPC）'}]
-                (site.root / 'schedule.json').write_text(json.dumps(record, ensure_ascii=False) + '\n', encoding='utf-8')
-            real = site.mode() == 'REAL'  # real captures are shown alone; the offline fixture runs stay on disk, unshown
-            runs = site.real_runs() if real else site.runs()
-            self.site_rendered = (settings['enabled'], settings['interval_seconds']) if settings else None
-            self.site_archive = self.archive_signature()
-            self.site_ui = self.generate(site.root / 'ui', runs, site.real_registry() if real else site.registry(), env,
-                                         schedule=site.root / 'schedule.json' if settings else None,
-                                         archive=site.root / 'aws-archive' if self.site_archive else None,
-                                         older=site.baseline_history_dirs() if real else ())
-            self.site_shown = [r.name for r in runs]
-            self.site_error = None
-        except RuntimeError as exc:  # keep serving the last good pages; the panel shows why
-            self.site_error = str(exc)
-            if self.site_ui is None:
-                raise
-        return self.site_ui
+        return self.pick_site().rebuild()
 
     def display_targets(self, site):
-        """The AWS-B pages of the site's imported archive that are NOT the registered site's pages, as a DISPLAY-ONLY targets file next to (never inside)
-        the signed targets.json. Derived each time from the archive's own list and the repo's known pages; None when there is nothing to add."""
-        manifest = site.root / 'aws-archive' / 'public' / 'MANIFEST.json'
-        try:
-            archived = set(json.loads(manifest.read_text('utf-8')).get('targets', {}))
-            known = json.loads((site.root / 'targets.json').read_text('utf-8'))
-            have = {p['target_id'] for p in known['pages']}
-            repo = json.loads((ROOT / 'src' / 'noxiworks' / 'targets.json').read_text('utf-8'))
-        except (OSError, ValueError, KeyError):
-            return None
-        pages = [p for p in repo['pages'] if p['target_id'] in archived and p['target_id'] not in have]
-        if not pages:
-            return None
-        sites = [s for s in repo['sites'] if s['site_id'] in {p['site_id'] for p in pages}]
-        out = site.root / 'aws-display-targets.json'
-        out.write_text(json.dumps({**{k: v for k, v in repo.items() if k not in ('pages', 'sites')}, 'sites': sites, 'pages': pages}, ensure_ascii=False, indent=2) + chr(10), encoding='utf-8')
-        return out
+        return SiteApp.display_targets(site)
 
-    def archive_signature(self):
-        """Changes whenever the user imports AWS-B results into <site>/aws-archive (None = nothing imported)."""
-        root = self.site.root / 'aws-archive'
-        manifest = root / 'public' / 'MANIFEST.json'
-        return (root / 'managed.json').is_file() and manifest.is_file() and manifest.stat().st_mtime_ns or None
-
-    # ---- the user's site: register -> automatic monitoring (site_monitor). The GUI only registers, pauses / resumes, confirms.
     def monitor(self):
-        from src.noxiworks.site_monitor import Monitor
-        return Monitor(self.site, docker_found=self.docker_found, real_runner=self.real_runner, fixture_capture=self.fixture_capture)
+        return self.pick_site().monitor()
 
-    def disk(self, monitor):
-        """Disk usage of the site folder, rescanned at most every 30 s (HOME polls every few seconds)."""
-        import time
-        if self._disk is None or time.monotonic() - self._disk[0] > 30:
-            self._disk = (time.monotonic(), monitor.disk())
-        return self._disk[1]
+    def http_monitor(self):
+        return self.pick_site().http_monitor()
 
+    def http_status(self):
+        return self.pick_site().http_status()
+
+    def background_state(self, channel='image'):
+        return self.pick_site().background_state(channel)
+
+    def setup_status(self):
+        return self.pick_site().setup_status()
+
+    def site_status(self, site_id=None, unit=None):
+        """The status of the site's first page, or of the named page (`unit`)."""
+        return (self.pick(site_id, unit) if unit else self.pick_site(site_id)).status() if self.sites else None
+
+    # ---- actions: register a site, or act on exactly the named one (site_monitor / http_monitor do the work)
     def site_action(self, action, body):
-        from src.noxiworks.site_monitor import Busy, Monitor
-        from src.noxiworks.site_workflow import FIXTURES as SITE_FIXTURES, Site
-        if action == 'setup' and self.site is not None:
-            return self.setup_step(body)
-        if action in ('monitor', 'confirm') and self.site is not None:
-            # Settings and the confirmation record only: allowed while an inspection runs (no page regeneration needed).
-            if action == 'confirm':
-                return self.site.confirm_baseline(utc_now())
-            changes = {k: body[k] for k in ('enabled', 'interval_seconds', 'offline_fixture') if k in body}
-            if 'offline_fixture' in changes and changes['offline_fixture'] not in SITE_FIXTURES:
-                raise ValueError('不明な撮影画像です')
-            if changes.get('enabled') is True and not self.monitor().load()['enabled']:
-                monitor = self.monitor()
-                view = self.monitor_view(monitor, monitor.load(), monitor.real().readiness(utc_now()), self.permit_info(monitor.real(), utc_now()), self.setup_status())
-                if not view['can_start']:  # the same answer the screen used to disable the button: the server does not rely on the browser
-                    raise ValueError('監視を開始できません：' + (view['start_block'] or view['reason']))
-            return self.monitor().update(utc_now(), self.interval_override, **changes)
+        if action == 'backup':
+            return self.backup_now(body)
+        if action == 'stop-site':  # the whole site: image and HTTP of every page (no start-all exists)
+            return self.pick_site(body.get('site_id')).stop_site(body)
+        if action not in ('register', 'add-page'):
+            one = self.pick(body.get('site_id'), body.get('unit'))
+            if action == 'setup':
+                return one.setup_step(body)
+            if action == 'http':
+                return one.http_action(body)
+            if action == 'notify':
+                return one.notify_action(body)
+            if action == 'maintenance':
+                return one.maintenance_action(body)
+            if action in ('monitor', 'confirm'):
+                return one.settings_action(action, body)
+            if action not in ('baseline-update', 'baseline-approve', 'inspect'):
+                raise ValueError('unknown action')
         if not self.lock.acquire(blocking=False):
             raise BlockingIOError('busy')
         try:
             now = utc_now()
             if action == 'register':
-                if self.site is not None:
-                    raise ValueError('MVP v1.0で登録できるサイトは1つです')
-                site = Site.register(self.data / 'sites', body.get('name'), body.get('url'), body.get('kinds'),
-                                     body.get('owner_confirmed'), now)
-                monitor = Monitor.create(site, now)  # monitoring on, first inspection due now: the scheduler starts it within seconds
-                if body.get('interval_seconds') is not None:
-                    from src.noxiworks.site_monitor import INTERVALS
-                    if body['interval_seconds'] not in INTERVALS:
-                        raise ValueError('検査間隔は 15分・1時間・6時間・24時間 から選んでください')
-                    settings = monitor.load()
-                    settings['interval_seconds'] = body['interval_seconds']
-                    monitor.save(settings)
-                self.site = site
-                out = {'site_id': site.info['site_id']}
-            elif self.site is None:
-                raise ValueError('先にサイトを登録してください')
-            elif action == 'baseline-update':  # the USER's explicit "新しい基準にする" (never taken from a schedule or an inspection)
-                from src.noxiworks.site_workflow import ACTOR
-                versions = body.get('expected_versions')
-                if (body.get('confirmed') is not True or not isinstance(body.get('run_id'), str) or not isinstance(versions, dict)
-                        or not all(type(v) is int for v in versions.values())):
-                    raise ValueError('新しい基準にする操作の内容が正しくありません')
-                try:
-                    done = self.monitor().update_baseline(body['run_id'], versions, now, ACTOR)
-                    out = {'versions': {b['kind']: b['version'] for b in done['baselines']}, 'recovered': done.get('recovered') is True}
-                except Busy as exc:
-                    raise ValueError(str(exc)) from None
-            elif action == 'baseline-approve':  # the USER's explicit formal approval of the current Baseline (never from a schedule or an inspection)
-                from src.noxiworks.site_workflow import ACTOR
-                expected = body.get('expected')
-                if (body.get('confirmed') is not True or not isinstance(expected, dict) or not expected
-                        or not all(isinstance(v, dict) for v in expected.values())):
-                    raise ValueError('正式承認の操作の内容が正しくありません')
-                try:
-                    self.monitor().approve_baseline(expected, now, ACTOR)
-                except Busy as exc:
-                    raise ValueError(str(exc)) from None
-                out = {'state': self.site.baseline_state()['state']}
-            elif action == 'inspect':  # auxiliary: inspect now, outside the schedule
-                try:
-                    out = self.monitor().run(now, 'MANUAL', self.interval_override, utc_now)
-                except Busy:
-                    raise BlockingIOError('busy') from None
+                one, out = self.register(body, now)
+            elif action == 'add-page':
+                one, out = self.add_page(body, now)
             else:
-                raise ValueError('unknown action')
-            self.rebuild_site()
+                out = one.inspect_now(now) if action == 'inspect' else one.baseline_action(action, body, now)
+            one.rebuild()
             return out
         finally:
             self.lock.release()
 
-    # ---- first-time setup, delegated (the app holds no key and never signs)
-    def setup_step(self, body):
-        """One GUI button of the first-time setup. Each starts an existing tool as a separate process and returns at once:
-          setup       tools/setup_monitoring.py in its OWN console window: the USER sees the permit, confirms it there and signs with
-                      their own key (ssh-keygen asks for the passphrase there). The app passes no key, no answer and no --yes.
-          docker      Docker Desktop (`docker desktop start`)
-          background  tools/background_monitor.py install (a Windows task for this data folder only)
-        The result shows up in the readiness checks once the tool has finished."""
-        from src.aws_b.model import format_utc
-        step = body.get('step')
-        host = self.site.info['url'].split('/')[2]
-        workers_dev = re.fullmatch(r'[a-z0-9-]+\.[a-z0-9-]+\.workers\.dev', host) is not None
-        if step == 'setup':  # first setup and renewal ("監視設定を更新") are the same tool
-            evidence = (self.site.root / 'real' / 'ownership-evidence.json').is_file()
-            ownership = body.get('ownership') or ('cloudflare' if workers_dev else None)
-            if ownership == 'reuse' and not evidence:
-                raise ValueError('再利用できる所有権の確認記録がありません。確認方法を選んでください')
-            if ownership not in ('reuse', 'cloudflare', 'well-known-file', 'dns-txt') or (ownership == 'cloudflare' and not workers_dev):
-                raise ValueError('所有権の確認方法を選んでください（Cloudflareの確認は workers.dev のサイトだけです）')
-            args = [sys.executable, '-B', 'tools/setup_monitoring.py', '--data', str(self.data.resolve()), '--pause']
-            if ownership != 'reuse':  # reuse: the tool takes the evidence that is already there (it re-checks it)
-                args += ['--ownership', ownership]
-            if ownership in ('well-known-file', 'dns-txt'):
-                if body.get('confirmed') is not True:
-                    raise ValueError('確認用ファイル（またはDNSのTXTレコード）を自分で確認してから、チェックを入れてください')
-                args += ['--verified-at', format_utc(utc_now())]
-            self.write_setup_status('LAUNCHED', 'セットアップの画面を開きました')
-            try:
-                self.launcher(args, console=True)
-            except OSError as exc:
-                self.write_setup_status('FAILED', 'セットアップの画面を開けませんでした：' + str(exc)[:200])
-                raise ValueError('セットアップの画面を開けませんでした') from None
-            return {'launched': 'setup', 'ownership': ownership,
-                    'note': '別のウィンドウで、許可の内容を確認して署名してください。完了すると、この画面の準備が自動で更新されます。'}
-        if step == 'docker':
-            self.launcher(['docker', 'desktop', 'start'], console=False)
-            return {'launched': 'docker', 'note': 'Docker Desktopを起動しています（1〜2分かかることがあります）。'}
-        if step in ('background', 'background-remove'):
-            action = 'install' if step == 'background' else 'remove'
-            self.launcher([sys.executable, '-B', 'tools/background_monitor.py', action, '--data', str(self.data.resolve())], console=False)
-            self._background = (0.0, None)  # ask again on the next screen update
-            return {'launched': step, 'note': 'アプリを閉じても監視するタスクを登録しました（15分ごとに確認）。' if action == 'install'
-                    else 'アプリを閉じている間の監視を解除しました（アプリを開いている間は、これまでどおり監視します）。'}
-        raise ValueError('unknown setup step')
+    def register(self, body, now):
+        from src.noxiworks.site_monitor import INTERVALS, Monitor
+        from src.noxiworks.site_workflow import Site
+        if len(self.sites) >= MAX_SITES:
+            raise ValueError(f'登録できるサイトは{MAX_SITES}個までです')
+        if body.get('interval_seconds') is not None and body['interval_seconds'] not in INTERVALS:
+            raise ValueError('検査間隔は 15分・1時間・6時間・24時間 から選んでください')
+        site = Site.register(self.data / 'sites', body.get('name'), body.get('url'), body.get('kinds'), body.get('owner_confirmed'), now)
+        monitor = Monitor.create(site, now)  # monitoring on, first inspection due now: the scheduler starts it within seconds
+        if body.get('interval_seconds') is not None:
+            settings = monitor.load()
+            settings['interval_seconds'] = body['interval_seconds']
+            monitor.save(settings)
+        one = SiteApp(self, site)
+        self.sites = {**self.sites, site.info['site_id']: one}  # replaced, not mutated: the scheduler threads iterate it
+        return one, {'site_id': site.info['site_id'], 'href': f"/site/{site.info['site_id']}/"}
 
-    def write_setup_status(self, state, message):
-        from src.aws_b.model import format_utc
-        (self.site.root / 'setup-status.json').write_text(json.dumps({'state': state, 'message': message, 'at': format_utc(utc_now())},
-                                                                     ensure_ascii=False) + '\n', encoding='utf-8')
+    def add_page(self, body, now):
+        """A further page of an existing site (same host): a unit folder of its own, image monitoring OFF, HTTP not configured. The caller holds the app lock."""
+        from src.noxiworks.site_workflow import Site
+        first = self.pick_site(body.get('site_id'))
+        site = Site.register_page(first.site, body.get('path'), body.get('label'), body.get('kinds'), now)
+        page = SiteApp(self, site, parent=first)
+        first.pages = {**first.pages, site.root.name: page}  # replaced, not mutated: the scheduler threads iterate it
+        first._overview = None
+        return page, {'site_id': first.site_id, 'unit': page.unit, 'href': page.href()}
 
-    def setup_status(self):
-        """What the setup window last reported (LAUNCHED / RUNNING / DONE / NOT_READY / FAILED), or None."""
-        f = self.site.root / 'setup-status.json'
+    # ---- long-term operation over the whole data folder
+    def backup_folder(self):
+        """Next to the data folder, never inside it."""
+        return self.data.with_name(self.data.name + '-backups')
+
+    def backup_now(self, body):
+        """A verified local copy (src/noxiworks/backup.py) into a NEW folder; refused while an inspection runs. Nothing is uploaded or deleted."""
+        from src.noxiworks import backup
+        site_id = body.get('site_id') if body.get('scope') == 'site' else None
+        if body.get('scope') not in ('all', 'site') or (site_id is not None and site_id not in self.sites) or (body.get('scope') == 'site' and site_id is None):
+            raise ValueError('バックアップの対象が正しくありません')
+        if not self.lock.acquire(blocking=False):
+            raise BlockingIOError('busy')
         try:
-            value = json.loads(f.read_text('utf-8'))
-        except (OSError, ValueError):
-            return None
-        return {k: str(value.get(k) or '')[:300] for k in ('state', 'message', 'at')} if isinstance(value, dict) else None
-
-    def background_state(self):
-        """True / False / None (unknown), asked at most once a minute (the screen polls every few seconds)."""
-        import time
-        at, value = self._background
-        if time.monotonic() - at > 60 or at == 0.0:
+            parent = self.backup_folder()
+            parent.mkdir(exist_ok=True)
             try:
-                value = self.background_query(self.data)
-            except Exception:
-                value = None
-            self._background = (time.monotonic(), value)
-        return value
-
-    def permit_info(self, real, now):
-        """The verified permit's period and runs, for the HOME summary and the renewal warning. None without a valid signature."""
-        from src.aws_b.model import parse_utc
-        permit, _ = real.permit()
-        if not permit:
-            return None
-        until = parse_utc(permit.get('valid_until') or '')
-        remaining = max(0, int(permit.get('max_runs') or 0) - real.used(permit)) if type(permit.get('max_runs')) is int else 0
-        days = (until - now).total_seconds() / 86400 if until else None
-        # `state` tells the reasons apart for display only; `expired` keeps its meaning (either reason) and every capture refusal is
-        # decided elsewhere (permit.check_scope / the harness preflight), never from this summary.
-        state = 'EXPIRED' if days is None or days <= 0 else 'EXHAUSTED' if remaining == 0 else 'ACTIVE'
-        return {'state': state, 'permit_id': permit.get('permit_id'), 'valid_until': permit.get('valid_until'), 'remaining_runs': remaining,
-                'days_left': None if days is None else round(days, 1),
-                'warning': days is not None and (days <= RENEW_WARNING_DAYS or remaining <= RENEW_WARNING_RUNS),
-                'expired': days is None or days <= 0 or remaining == 0}
-
-    def tick(self):
-        """One scheduler step: show inspections a background worker saved, and run the next inspection when it is due."""
-        from src.noxiworks.site_monitor import Busy
-        if self.site is None or not self.lock.acquire(blocking=False):
-            return None
-        try:
-            entry = None
-            try:
-                entry = self.monitor().run_if_due(utc_now(), self.interval_override, utc_now)
-            except Busy:
-                pass  # the OS-scheduled worker is inspecting right now
-            shown = [r.name for r in (self.site.real_runs() if self.site.mode() == 'REAL' else self.site.runs())]
-            settings = self.monitor().load()
-            if (entry is not None or shown != self.site_shown or (settings['enabled'], settings['interval_seconds']) != self.site_rendered
-                    or self.archive_signature() != self.site_archive):
-                self.rebuild_site()
-            return entry
+                done = backup.create(self.data, parent, utc_now(), site_id)
+            except backup.BackupRefused as exc:
+                raise ValueError(str(exc)) from None
+            checked = backup.verify(done['path'])
+            return {**{k: done[k] for k in ('ok', 'path', 'files', 'bytes', 'skipped', 'changed', 'problems')}, 'verified': checked['ok']}
         finally:
             self.lock.release()
 
+    def storage(self):
+        """Disk usage of the data folder by area and by site, rescanned at most once a minute."""
+        import time
+        from src.noxiworks import retention
+        if self._storage is None or time.monotonic() - self._storage[0] > 60:
+            kept = self.backup_folder()
+            backups = sorted(p.name for p in kept.iterdir() if p.name.startswith('siteproof-backup-') and (p / 'MANIFEST.json').is_file()) if kept.is_dir() else []
+            self._storage = (time.monotonic(), {**retention.data_usage(self.data), 'backup_folder': str(kept), 'backups': len(backups), 'last_backup': backups[-1] if backups else None})
+        return self._storage[1]
+
+    def environment(self):
+        """導入環境の確認 (src/noxiworks/environment.py), read only, rescanned at most once a minute. The Docker probes are only asked as the real ones when
+        `docker_found` is not injected (offline tests set it; the app itself never does)."""
+        import time
+        from src.noxiworks import environment
+        if self._environment is None or time.monotonic() - self._environment[0] > 60:
+            probes = {'background': self.background_query}
+            if self.docker_found is not None:
+                found = self.docker_found
+                probes.update(docker_cli=lambda: 'docker', docker_engine=lambda: found, docker_image=lambda pinned: pinned if found else None)
+            self._environment = (time.monotonic(), environment.report(self.data, probes))
+        return self._environment[1]
+
+    # ---- schedulers
+    def tick(self):
+        """One scheduler step over all sites, the one due first first. One site's error is shown on that site and never stops the others."""
+        first = None
+        for one in sorted(self.units(), key=lambda s: s.next_due()):
+            if self.stop_event.is_set() or not self.lock.acquire(blocking=False):
+                break
+            try:
+                entry = one.tick()
+                first = first or entry
+            except Exception as exc:
+                one.error = 'scheduler: ' + type(exc).__name__ + ': ' + str(exc)[:200]
+            finally:
+                self.lock.release()
+        return first
+
+    def http_pass(self):
+        """Start the due HTTP checks, each site in its own thread: a slow site or a long image capture never holds another site's check back."""
+        for one in self.units():
+            if one.http_thread is None or not one.http_thread.is_alive():
+                one.http_thread = threading.Thread(target=one.http_tick, name='siteproof-http-' + one.unit, daemon=True)
+                one.http_thread.start()
+
+    def notify_pass(self):
+        """E-mail, one site after the other (one connection at a time); a slow mail server never holds a check back."""
+        for one in self.units():
+            if not self.stop_event.is_set():
+                one.notify_tick()
+
     def start_scheduler(self, every=2.0):
-        def loop():
-            while not self.stop_event.wait(every):
+        def loop(step, seconds):
+            while not self.stop_event.wait(seconds):
                 try:
-                    self.tick()
+                    step()
                 except Exception as exc:  # never kill the scheduler; the panel shows the error
-                    self.site_error = 'scheduler: ' + type(exc).__name__ + ': ' + str(exc)[:200]
-        self.scheduler = threading.Thread(target=loop, name='siteproof-monitor', daemon=True)
+                    if self.first:
+                        self.first.error = 'scheduler: ' + type(exc).__name__ + ': ' + str(exc)[:200]
+        self.scheduler = threading.Thread(target=loop, args=(self.tick, every), name='siteproof-monitor', daemon=True)
         self.scheduler.start()
+        self.http_scheduler = threading.Thread(target=loop, args=(self.http_pass, 5.0), name='siteproof-http', daemon=True)
+        self.http_scheduler.start()
+        self.notify_scheduler = threading.Thread(target=loop, args=(self.notify_pass, 15.0), name='siteproof-notify', daemon=True)
+        self.notify_scheduler.start()
 
     def stop(self):
         self.stop_event.set()
-
-    def site_status(self):
-        from src.noxiworks.site_monitor import INTERVALS, OUTCOME_LABELS
-        from src.noxiworks.site_workflow import FIXTURES as SITE_FIXTURES
-        site = self.site
-        if site is None:
-            return None
-        monitor = self.monitor()
-        settings = monitor.load()
-        real = monitor.real()
-        readiness = real.readiness(utc_now())
-        last = settings['last'] or {}
-        # One headline state for HOME. A registered site that cannot be captured for real is "preparing" -- never shown as monitored.
-        # OFFLINE_DEMO exists only for engine tests that turned synthetic captures on (fixture_capture).
-        setup = self.setup_status()
-        permit = self.permit_info(real, utc_now())
-        if setup and setup['state'] in ('LAUNCHED', 'RUNNING'):
-            display = 'SETUP_RUNNING'
-        elif not settings['enabled']:
-            display = 'PAUSED'
-        elif last.get('outcome') == 'FAILED':
-            display = 'FAILED'
-        elif all(c['ok'] for c in readiness):
-            display = 'REAL_MONITORING'
-        elif self.fixture_capture and site.mode() != 'REAL':
-            display = 'OFFLINE_DEMO'
-        elif permit and permit['expired']:
-            display = 'EXPIRED'  # set up once, the permit ran out (period or runs): "監視設定を更新"
-        elif not (site.root / 'real' / 'permit.json').is_file():
-            display = 'SETUP_NEEDED'
-        else:
-            display = 'REAL_PENDING'
-        runs = site.runs() + site.real_runs()
-        view = self.monitor_view(monitor, settings, readiness, permit, setup)
-        log = [{**entry, 'explained': explain_failure(entry.get('error')) if entry.get('outcome') == 'FAILED' else None} for entry in monitor.log(8)]
-        return {**{k: site.info[k] for k in ('site_id', 'page_id', 'name', 'url', 'label', 'kinds', 'registered_at', 'owner', 'capture_mode')},
-                'monitor': {'enabled': settings['enabled'], 'interval_seconds': self.interval_override or settings['interval_seconds'],
-                            'interval_label': INTERVALS.get(settings['interval_seconds']), 'override': self.interval_override,
-                            'next_due_at': settings['next_due_at'] if settings['enabled'] else None, 'last': settings['last'],
-                            'running': monitor.running(), 'offline_fixture': settings['offline_fixture']},
-                'baseline': site.baseline_state(), 'baseline_update': real.baseline_update_state(), 'baseline_history': site.baseline_history(),
-                'monitor_view': view, 'runs': len(runs), 'log': log,
-                'readiness': readiness, 'real_capture_available': all(c['ok'] for c in readiness), 'mode': site.mode(),
-                'setup': setup, 'permit': permit, 'background': self.background_state(),
-                'ownership_evidence': (site.root / 'real' / 'ownership-evidence.json').is_file(),
-                'display': display, 'permit_present': (site.root / 'real' / 'permit.json').is_file(), 'disk': self.disk(monitor),
-                'paused_reason': settings.get('paused_reason'),
-                'fixtures': SITE_FIXTURES, 'fixture_capture': self.fixture_capture, 'intervals': INTERVALS, 'outcomes': OUTCOME_LABELS,
-                'error': self.site_error}
-
-    def monitor_view(self, monitor, settings, readiness, permit, setup):
-        """The monitoring state HOME shows (src/noxiworks/uiview.py), and the one the server enforces when asked to start monitoring."""
-        policy = settings.get('stop_policy')
-        hold = monitor._hold(policy) if policy else None
-        return monitor_view(enabled=settings['enabled'], running=monitor.running(), paused_reason=settings.get('paused_reason'), last=settings.get('last'),
-                            readiness=readiness, permit=permit, setup=setup, hold=hold, fixture_engine=self.fixture_capture)
 
     # ---- one inspection
     def inspect(self, fixture):
@@ -553,9 +535,34 @@ class App:
             self.state['running'] = None
             self.lock.release()
 
-    def status(self):
+    def status(self, site_id=None, page_id=None):
+        """`site` is the page the screen is about (the named site's named page, else its first page; or the only site); `sites` the list of all sites."""
+        one = self.sites.get(site_id) if site_id else self.first if len(self.sites) == 1 else None
+        if one is not None and page_id:
+            one = one.pages.get(page_id, one)
         return {**self.state, 'runs': len(self.runs()), 'fixtures': {k: v[0] for k, v in FIXTURES.items()}, 'data': str(self.data),
-                'site': self.site_status()}
+                'site': one.status() if one else None, 'sites': [s.overview() for s in self.sites.values()], 'max_sites': MAX_SITES, 'storage': self.storage(),
+                'site_problems': [{'folder': n, 'reason': r} for n, r in self.site_problems]}
+
+    def pages(self, path):
+        """-> (folder of generated pages, path inside it) for a GET path, a redirect (None, target) or None. /demo/... = the synthetic demo;
+        /site/<id>/... = that site; / = the only site, or (none / several) the empty dashboard the app's panels fill. Never two on one page."""
+        if path in ('/demo', *('/site/' + s for s in self.sites), *(f'/site/{s}/page/{p}' for s, one in self.sites.items() for p in one.pages)):
+            return None, path + '/'
+        if path.startswith('/demo/'):
+            return self.ui, path[len('/demo/'):]
+        if path.startswith('/site/'):
+            site_id, _, rel = path[len('/site/'):].partition('/')
+            one = self.sites.get(site_id)
+            if one is None:
+                return None
+            if rel == 'page' or rel.startswith('page/'):  # a further page: /site/<site id>/page/<page id>/...
+                _, _, rest = rel.partition('/')
+                page_id, _, inside = rest.partition('/')
+                page = one.pages.get(page_id)
+                return (page.ui or self.empty_ui, inside) if page else None
+            return one.ui or self.empty_ui, rel
+        return (self.first.ui or self.empty_ui) if len(self.sites) == 1 else self.empty_ui, path.lstrip('/')
 
 
 def page_with_app(raw):
@@ -602,16 +609,21 @@ def make_handler(app, authority):
                 # Readable only by a same-origin page: no CORS header is ever sent.
                 if self.headers.get('X-SiteProof-App') != '1' or self.headers.get('Sec-Fetch-Site', 'same-origin') != 'same-origin':
                     return self.json(403, {'error': 'forbidden'})
-                return self.json(200, {'token': app.token, **app.status()})
+                asked = re.fullmatch(r'site=(site-[0-9a-f]{8})(?:&page=(site-[0-9a-f]{8}-p[2-9]))?', self.path.partition('?')[2])
+                return self.json(200, {'token': app.token, **app.status(asked and asked.group(1), asked and asked.group(2))})
+            if path == '/app/api/environment':  # the same checks as the session: only a same-origin page of the app reads it
+                if self.headers.get('X-SiteProof-App') != '1' or self.headers.get('Sec-Fetch-Site', 'same-origin') != 'same-origin':
+                    return self.json(403, {'error': 'forbidden'})
+                return self.json(200, app.environment())
             if path in ('/app/app.js', '/app/app.css'):
                 f = assets / path.rsplit('/', 1)[1]
                 return self.send(200, f.read_bytes(), TYPES[f.suffix])
-            # /demo/... = the synthetic demo; / = the user's site once registered (until then, the demo). Never both on one page.
-            demo = path == '/demo' or path.startswith('/demo/')
-            ui = app.ui if demo else app.site_ui or app.empty_ui  # / never shows the synthetic demo: empty until a site is registered
-            if path == '/demo':
-                return self.send(302, b'', 'text/plain', {'Location': '/demo/'})
-            rel = path[len('/demo/'):] if path.startswith('/demo/') else path.lstrip('/')
+            found = app.pages(path)
+            if found is None:
+                return self.json(404, {'error': 'not found'})
+            ui, rel = found
+            if ui is None:
+                return self.send(302, b'', 'text/plain', {'Location': rel})
             rel = rel or 'index.html'
             if '..' in rel.split('/') or '\\' in rel or ':' in rel:
                 return self.json(404, {'error': 'not found'})
@@ -674,13 +686,28 @@ def serve(data, port=0, interval_override=None, scheduler=True, fixture_capture=
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--data', type=Path, default=default_data(), help='app data folder (created if missing)')
+    parser.add_argument('--data', type=Path, help='app data folder (created if missing; default: the folder chosen with --remember, else %%LOCALAPPDATA%%\\SiteProof)')
+    parser.add_argument('--remember', action='store_true', help='with --data: use this folder from now on when --data is left out (writes <base>/settings.json; moves no data)')
+    parser.add_argument('--where', action='store_true', help='print the data folder in use and exit (starts nothing)')
     parser.add_argument('--port', type=int, default=8765, help='127.0.0.1 port (0 = any free port)')
     parser.add_argument('--no-browser', action='store_true', help='do not open the default browser')
     parser.add_argument('--check-every', type=int, metavar='SECONDS', help='testing only: seconds between scheduled inspections (overrides the site setting)')
     args = parser.parse_args(argv)
     if args.check_every is not None and not 5 <= args.check_every <= 86400:
         parser.error('--check-every must be 5..86400 seconds')
+    if args.remember and not args.data:
+        parser.error('--remember needs --data <folder>')
+    try:
+        source = '--data で指定' if args.data else '前に選んだフォルダ' if settings_file().is_file() else '既定の場所'
+        args.data = args.data or default_data()
+        if args.remember:
+            print(f'今後は --data を付けなくても、このフォルダを使います：{remember_data(args.data)}（データは移動していません）', flush=True)
+    except DataFolderError as exc:
+        print('SiteProof を起動できません：' + str(exc), flush=True)
+        return 2
+    if args.where:
+        print(f'データフォルダ：{args.data.resolve()}（{source}' + ('' if args.data.is_dir() else '・まだありません。起動すると作られます') + '）', flush=True)
+        return 0
     if args.port and already_running(args.port):
         url = f'http://127.0.0.1:{args.port}/'
         print(f'SiteProof はすでに起動しています：{url}（画面を開きます）', flush=True)

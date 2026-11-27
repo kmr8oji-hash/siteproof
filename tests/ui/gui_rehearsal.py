@@ -68,7 +68,7 @@ def main(argv=None):
 
     app.docker_found, app.real_runner, app.launcher = True, FakeHarness(), launcher
     # background task state: as recorded by the stand-in (registered after an install, gone after a remove; no schtasks query)
-    app.background_query = lambda d: (lambda kinds: bool(kinds) and kinds[-1] == 'background-install')(
+    app.background_query = lambda *asked: (lambda kinds: bool(kinds) and kinds[-1] == 'background-install')(
         [json.loads(l)['kind'] for l in calls.read_text('utf-8').splitlines() if 'background' in l] if calls.is_file() else [])
     app.start_scheduler()
     print(f'GUI rehearsal: http://127.0.0.1:{server.server_address[1]}/  data: {data}', flush=True)

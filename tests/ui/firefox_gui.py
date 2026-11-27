@@ -7,6 +7,7 @@ import argparse
 import base64
 import json
 from pathlib import Path
+import re
 import shutil
 import socket
 import subprocess
@@ -24,7 +25,8 @@ PREFS = {
     'network.connectivity-service.enabled': False, 'extensions.update.enabled': False, 'browser.newtabpage.enabled': False,
     'browser.startup.homepage': 'about:blank', 'startup.homepage_welcome_url': '', 'browser.aboutwelcome.enabled': False,
     'network.dns.disablePrefetch': True, 'network.prefetch-next': False, 'browser.search.update': False, 'remote.prefs.recommended': True,
-    'intl.accept_languages': 'ja-JP', 'browser.shell.checkDefaultBrowser': False}
+    'intl.accept_languages': 'ja-JP', 'browser.shell.checkDefaultBrowser': False,
+    'network.trr.mode': 5, 'app.normandy.enabled': False, 'messaging-system.rsexperimentloader.enabled': False}  # no DNS-over-HTTPS, no remote experiments
 
 
 class Marionette:
@@ -126,22 +128,19 @@ def main(argv=None):
         m.click('#site-add-submit')
         m.wait("return document.getElementById('site-readiness')", what='登録後のHOME')
         summary = m.js("return document.querySelector('#site-readiness summary').textContent")
-        step('サイト登録 → HOMEに「実サイト監視の準備」', '0 / 5' in summary or '1 / 5' in summary or '2 / 5' in summary or '3 / 5' in summary, summary)
+        step('サイト登録 → HOMEに「実サイト監視の準備」', re.search(r'（[0-4] / 6 完了）', summary), summary)
         m.shot(args.out / '02-registered.png')
-        # 2. a setup that needs the user's own check is refused on screen (nothing is launched)
-        m.js("var s = document.getElementById('site-setup-ownership'); s.value = 'well-known-file'; return true;")
-        m.click('#site-setup-start')
-        err = m.wait("var t = document.getElementById('site-setup-status'); return t && t.classList.contains('is-error') && t.textContent", 20, '確認なしの拒否')
-        step('「自分で確認しました」なしのセットアップは画面で止まる', '自分で確認' in err, err)
+        # 2. the two methods that cannot be verified are listed but not selectable (nothing is launched)
+        step('確認用ファイル・DNSのTXTレコードは選べない（未対応と表示）',
+             m.js("var o = document.querySelectorAll('#site-setup-ownership option'); var bad = 0; for (var i = 0; i < o.length; i++) { if (/well-known|dns-txt/.test(o[i].value) && o[i].disabled && o[i].textContent.indexOf('対応していません') >= 0) bad++; } return bad") == 2)
         # 3. 初回セットアップ (workers.dev: Cloudflare, chosen automatically)
-        m.js("var s = document.getElementById('site-setup-ownership'); s.value = 'cloudflare'; return true;")
         step('workers.devでは確認方法の既定がCloudflare', m.js("return document.getElementById('site-setup-ownership').options[0].value") == 'cloudflare')
         m.click('#site-setup-start')
         running = m.wait("var e = document.getElementById('site-setup-state'); return e && /LAUNCHED|RUNNING/.test(e.dataset.state) && e.textContent", 30, 'セットアップ中')
         step('セットアップ中の表示', 'セットアップ中' in running, running)
         m.shot(args.out / '03-setup-running.png')
         done = m.wait("var e = document.getElementById('site-setup-state'); return e && e.dataset.state === 'DONE' && document.querySelector('#site-readiness summary').textContent", 90, 'セットアップ完了（自動更新）')
-        step('セットアップ完了 → HOMEが自動で更新され準備 5/5', '5 / 5' in done, done)
+        step('セットアップ完了 → HOMEが自動で更新され準備 6/6', '6 / 6' in done, done)
         m.shot(args.out / '04-setup-done.png')
         # 4. the scheduler captures by itself (stand-in harness) and makes the Baseline
         def outcomes():
@@ -153,8 +152,8 @@ def main(argv=None):
         step('初回の自動撮影とBaseline自動作成（代役のハーネス・操作なし）', any(e['outcome'] == 'BASELINE_CREATED' for e in outcomes()),
              [(e['trigger'], e['outcome']) for e in outcomes()])
         time.sleep(4)  # HOME reloads itself after the inspection; act on the settled page
-        m.wait("return document.readyState === 'complete' && /実サイト監視中/.test(document.body.innerText)", 30, 'HOME 実サイト監視中')
-        step('HOMEの状態が「実サイト監視中」', True)
+        m.wait("return document.readyState === 'complete' && /正常に監視中|実サイト監視中/.test((document.getElementById('site-display') || {}).textContent || '')", 120, 'HOME 正常に監視中')
+        step('HOMEの画像監視が「正常に監視中」', True)
         permit = m.js("var e = document.getElementById('site-permit'); return e && e.textContent")
         step('監視許可の期限・残り回数の表示', bool(permit) and '残り' in permit, permit)
         step('「監視設定を更新」ボタン', m.js("return document.getElementById('site-setup-start').textContent") == '監視設定を更新')

@@ -15,8 +15,10 @@ import tempfile
 import unittest
 
 from src.aws_b.model import format_utc
-from src.noxiworks import permit as permits
+from src.noxiworks import permit as permits, real_capture
 from src.noxiworks.app import App, utc_now
+from src.noxiworks.real_capture import RealCaptureRefused
+from tools.permit_draft import harness_constants
 
 ROOT = Path(__file__).resolve().parents[2]
 SITE_URL = 'https://my-site.com/'
@@ -30,6 +32,7 @@ IDENTITY_FILES = ('tests/runtime/netpolicy_hardened.py', 'tests/runtime/egress_b
 CF_ACCOUNT, CF_WORKER, CF_SUB = 'a' * 64, 'my-worker', 'my-sub'
 CF_HOST = f'{CF_WORKER}.{CF_SUB}.workers.dev'
 CF_URL = f'https://{CF_HOST}/'
+IMAGE = harness_constants()[1]  # the image ID the harness requires (read from its source; no Docker)
 needs_ssh = unittest.skipUnless(permits.ssh_keygen(), 'OpenSSH ssh-keygen not available')
 
 
@@ -138,7 +141,7 @@ class SignedPermit(unittest.TestCase):
         self.fake = FakeHarness()
         self.n = 0
 
-    def app(self, name='data', url=SITE_URL, fixture_capture=False, kinds=('Desktop', 'Mobile')):
+    def app(self, name='data', url=CF_URL, fixture_capture=False, kinds=('Desktop', 'Mobile')):
         app = App(self.root / name)
         app.fixture_capture = fixture_capture
         app.setup()
@@ -152,14 +155,15 @@ class SignedPermit(unittest.TestCase):
 
     def permit(self, app, key=None, *, sign=True, **over):
         site, now = app.site, utc_now()
+        if 'ownership' not in over:
+            over['ownership'] = self.cf_ownership(app)
         self.n += 1
         body = {'schema': permits.SCHEMA, 'permit_id': 'permit-%d' % self.n, 'issued_by': 'site-owner', 'issued_at': format_utc(now),
                 'site': {'site_id': site.info['site_id'], 'origin': site.info['origin'], 'host': site.info['url'].split('/')[2]},
                 'target': {'target_id': site.page_id, 'url': site.info['url']},
                 'target_files': {n: sha(site.root / n) for n in permits.TARGET_FILES},
                 'valid_from': format_utc(now - timedelta(hours=1)), 'valid_until': format_utc(now + timedelta(days=1)), 'max_runs': 5,
-                'ownership': {'method': 'well-known-file', 'verified_at': format_utc(now)},
-                'identity': {'files': {rel: sha(ROOT / rel) for rel in IDENTITY_FILES}, 'image_id': 'sha256:' + '0' * 64,
+                'identity': {'files': {rel: sha(ROOT / rel) for rel in IDENTITY_FILES}, 'image_id': IMAGE,
                              'bundle_manifest_sha256': '1' * 64},
                 'baseline_policy': 'AUTO_INITIAL_THEN_COMPARE'}
         body.update(over)
@@ -186,7 +190,8 @@ class SignedPermit(unittest.TestCase):
                  ('expired', lambda: self.permit(app, valid_until=format_utc(utc_now() - timedelta(seconds=1)))),
                  ('no runs', lambda: self.permit(app, max_runs=0)),
                  ('no ownership check', lambda: self.permit(app, ownership={})),
-                 ('identity pins other file contents', lambda: self.permit(app, identity={'files': {rel: '0' * 64 for rel in IDENTITY_FILES}, 'image_id': 'sha256:' + '0' * 64}))]
+                 ('identity pins other file contents', lambda: self.permit(app, identity={'files': {rel: '0' * 64 for rel in IDENTITY_FILES}, 'image_id': IMAGE})),
+                 ('ownership method that cannot be verified', lambda: self.permit(app, ownership={'method': 'well-known-file', 'verified_at': format_utc(utc_now())}))]
         for name, make in cases:
             with self.subTest(name):
                 make()
@@ -201,7 +206,7 @@ class SignedPermit(unittest.TestCase):
         self.permit(app)
         targets = app.site.root / 'targets.json'
         original = targets.read_bytes()
-        targets.write_bytes(original.replace(b'https://my-site.com/', b'https://other-site.com/'))  # "just change the URL in the settings"
+        targets.write_bytes(original.replace(CF_URL.encode(), b'https://other-site.com/'))  # "just change the URL in the settings"
         self.assertFalse(app.monitor().real().ready(utc_now()))
         self.assertEqual(self.outcome(app)[1], 'REAL_NOT_READY')
         targets.write_bytes(original)
@@ -295,8 +300,11 @@ class SignedPermit(unittest.TestCase):
         self.assertTrue(any(p.name.endswith('-failed') for p in (app.site.root / 'real' / 'runs').iterdir()))
 
     # ---- CLOUDFLARE_ACCOUNT_CONTROL (synthetic account, Worker and subdomain; nothing here contacts Cloudflare)
-    def cf_permit(self, app, *, worker=CF_WORKER, sub=CF_SUB, evidence=None, cloudflare=None, pin=None, write=True, **over):
+    def cf_permit(self, app, **over):
         """The USER's record: the evidence file in real/, then a signed permit that pins it. Keyword overrides model a wrong record."""
+        return self.permit(app, ownership=self.cf_ownership(app, **over))
+
+    def cf_ownership(self, app, *, worker=CF_WORKER, sub=CF_SUB, evidence=None, cloudflare=None, pin=None, write=True, **over):
         now = format_utc(utc_now())
         ev = {'schema': permits.CF_EVIDENCE_SCHEMA, 'evidence_id': 'cf-check-1', 'method': 'CLOUDFLARE_ACCOUNT_CONTROL', 'checked_at': now,
               'account_id_sha256': CF_ACCOUNT, 'worker': CF_WORKER, 'workers_dev_subdomain': CF_SUB, 'host': CF_HOST,
@@ -312,7 +320,7 @@ class SignedPermit(unittest.TestCase):
         own = {'method': 'CLOUDFLARE_ACCOUNT_CONTROL', 'verified_at': now,
                'cloudflare': cloudflare if cloudflare is not None else {'account_id_sha256': CF_ACCOUNT, 'worker': worker, 'workers_dev_subdomain': sub},
                'evidence': pin if pin is not None else {'evidence_id': 'cf-check-1', 'sha256': hashlib.sha256(raw).hexdigest()}}
-        return self.permit(app, ownership={**own, **over})
+        return {**own, **over}
 
     def owner_problems(self, app):
         checks = app.monitor().real().readiness(utc_now())
@@ -414,23 +422,96 @@ class SignedPermit(unittest.TestCase):
                 code, refused = run(f'bad-{i}')
                 self.assertEqual(code, 2)
                 self.assertTrue(refused, name)
-        for method in ('well-known-file', 'dns-txt'):  # the existing methods pass the preflight unchanged
+        for method in ('well-known-file', 'dns-txt'):  # not verifiable yet: the harness itself refuses, before any Docker call
             self.permit(app, ownership={'method': method, 'verified_at': format_utc(utc_now())})
-            self.assertEqual(run(method), ('DOCKER', []))
+            code, refused = run(method)
+            self.assertEqual(code, 2)
+            self.assertIn('まだ自動照合に対応していません', refused[0])
         self.assertEqual(list((app.data / 'trust').glob('permit-ledger/*.jsonl')), [])  # nothing was counted: refused before the ledger
 
-    def test_existing_ownership_methods_are_unchanged(self):
+    def test_ownership_methods_that_cannot_be_verified_are_refused_and_use_no_run(self):
         for method in ('well-known-file', 'dns-txt'):
-            for url in (SITE_URL, CF_URL):  # no evidence file and no Cloudflare record needed, on any host
+            for url in (SITE_URL, CF_URL):  # on any host, also next to a valid Cloudflare evidence file
                 with self.subTest(method=method, url=url):
                     app = self.app(name=f'd-{method[:4]}-{"cf" if url == CF_URL else "site"}', url=url)  # short: the data folder must stay under the bundle path limit
-                    self.permit(app, ownership={'method': method, 'verified_at': format_utc(utc_now())})
-                    self.assertEqual(self.owner_problems(app)[0], [])
+                    self.cf_ownership(app)
+                    permit = self.permit(app, ownership={'method': method, 'verified_at': format_utc(utc_now())})
+                    failing, state = self.owner_problems(app)
+                    self.assertEqual(failing, ['owner'])  # only the ownership: signature / scope / identity / image stay valid
+                    self.assertIn('まだ自動照合に対応していません', state)
+                    self.assertNotIn('確認済み', state)
+                    self.assertEqual(self.outcome(app), ('REAL_NOT_READY', 'REAL_NOT_READY'))
+                    with self.assertRaises(RealCaptureRefused):  # called directly, past the monitor
+                        app.monitor().real().capture(utc_now())
+                    self.assertEqual(permits.used_runs(app.data / 'trust' / 'allowed_signers', permit['permit_id']), 0)
+                    self.assertFalse((app.data / 'trust' / 'permit-ledger').exists())
                     self.permit(app, ownership={'method': method})
                     self.assertEqual(self.owner_problems(app)[0], ['owner'])
+        self.assertEqual(self.fake.calls, [])
         app = self.app(name='data-unknown')
         self.permit(app, ownership={'method': 'cloudflare-account-control', 'verified_at': format_utc(utc_now())})  # not an accepted spelling
         self.assertEqual(self.owner_problems(app)[0], ['owner'])
+
+    # ---- the capture image is checked before the harness starts (the engine and the inspect are stand-ins: no Docker)
+    def with_image(self, app, found, engine=True, permit=None):
+        """(entry, image check, inspect stand-in) of one inspection on a PC whose engine reports `found` for the image."""
+        from unittest import mock
+        app.docker_found = None  # the real path, not the injected environment
+        inspect = mock.Mock(return_value=found)
+        with mock.patch.object(real_capture.shutil, 'which', return_value='docker'), \
+                mock.patch.object(real_capture, 'docker_engine_answers', return_value=engine), \
+                mock.patch.object(real_capture, 'docker_image_id', inspect):
+            check = next(c for c in app.monitor().real().readiness(utc_now()) if c['key'] == 'image')
+            entry = app.monitor().run(utc_now(), 'SCHEDULE')
+            if not check['ok']:
+                with self.assertRaises(RealCaptureRefused):  # called directly, past the monitor
+                    app.monitor().real().capture(utc_now())
+        return entry, check, inspect
+
+    def test_a_missing_or_different_capture_image_is_refused_and_uses_no_run(self):
+        app = self.app()
+        permit = self.permit(app)
+        trust = app.data / 'trust' / 'allowed_signers'
+        for name, found, reason in (('missing', '', 'このPCにありません'), ('other image', 'sha256:' + 'f' * 64, '一致しません'),
+                                    ('docker did not answer', None, '確認できませんでした')):
+            with self.subTest(name):
+                entry, check, inspect = self.with_image(app, found)
+                self.assertEqual((entry['mode'], entry['outcome']), ('REAL_NOT_READY', 'REAL_NOT_READY'))
+                self.assertIn('撮影イメージ', entry['error'])  # the history says which condition is missing
+                self.assertIn(reason, check['state'])
+                self.assertEqual({c.args[0] for c in inspect.call_args_list}, {IMAGE})
+                self.assertEqual(permits.used_runs(trust, permit['permit_id']), 0)
+        self.assertFalse((app.data / 'trust' / 'permit-ledger').exists())
+        self.assertEqual((self.fake.calls, app.site.real_runs()), ([], []))
+        # the same permit, the right image: ready, and the run is counted once by the harness as before
+        entry, check, inspect = self.with_image(app, IMAGE)
+        self.assertTrue(check['ok'], check['state'])
+        self.assertEqual((entry['mode'], entry['outcome']), ('REAL', 'BASELINE_CREATED'))
+        self.assertEqual(permits.used_runs(trust, permit['permit_id']), 1)
+        self.assertIn(0, [c.args[1] for c in inspect.call_args_list if len(c.args) > 1])  # the decision asks now, not the screen's cache
+
+    def test_a_permit_naming_another_image_than_the_harness_is_refused_without_asking_docker(self):
+        app = self.app()
+        self.permit(app, identity={'files': {rel: sha(ROOT / rel) for rel in IDENTITY_FILES}, 'image_id': 'sha256:' + '0' * 64,
+                                   'bundle_manifest_sha256': '1' * 64})
+        entry, check, inspect = self.with_image(app, 'sha256:' + '0' * 64)  # the PC even has the image the permit names
+        self.assertEqual(entry['outcome'], 'REAL_NOT_READY')
+        self.assertIn('ハーネスの要求するイメージIDと一致しません', check['state'])
+        inspect.assert_not_called()
+        self.assertEqual(self.fake.calls, [])
+        self.assertFalse((app.data / 'trust' / 'permit-ledger').exists())
+
+    def test_the_image_is_asked_only_when_every_other_gate_holds(self):
+        app = self.app()
+        for name, make, engine in (('no permit', lambda: None, True),
+                                   ('unverifiable ownership', lambda: self.permit(app, ownership={'method': 'dns-txt', 'verified_at': format_utc(utc_now())}), True),
+                                   ('no runs left', lambda: self.permit(app, max_runs=0), True), ('engine down', lambda: self.permit(app), False)):
+            with self.subTest(name):
+                make()
+                entry, check, inspect = self.with_image(app, IMAGE, engine)
+                self.assertEqual(entry['outcome'], 'REAL_NOT_READY')
+                self.assertFalse(check['ok'])
+                inspect.assert_not_called()
 
     def test_the_app_cannot_issue_a_permit(self):
         """No code under src/ signs, and no app route writes a permit or the trust file."""

@@ -170,7 +170,7 @@ class StopPolicy(unittest.TestCase):
     def test_the_policy_is_never_set_from_an_inspection_or_the_gui_route(self):
         from pathlib import Path
         root = Path(__file__).resolve().parents[2] / 'src/noxiworks'
-        app = (root / 'app.py').read_text('utf-8')
+        app = (root / 'app.py').read_text('utf-8') + (root / 'site_app.py').read_text('utf-8')
         self.assertIn("for k in ('enabled', 'interval_seconds', 'offline_fixture') if k in body", app)   # the GUI route cannot set it
         self.assertNotIn('stop_policy=', app)                                  # nothing in the app passes a policy to update(); it only reads one
 

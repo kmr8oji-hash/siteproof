@@ -269,7 +269,7 @@ def main():
             'overlay': {'src': {'sha256': src_digest, 'files': src_files}, 'tests/runtime': {'sha256': rt_digest, 'files': rt_files}},
             'window_cap_seconds': WINDOW_CAP, 'grant_ttl_seconds': TTL, 'max_grants': 1})
         checks['flag_false_in_source_at_start'] = re.search(r'^REAL_SITE_ACCESS_ENABLED = False$', sp_text, re.M) is not None
-        checks['target_is_the_single_registered_ttn_host_and_exact_path'] = (host == 'ttn-sample.test' and site['origin'] == 'https://' + host
+        checks['target_is_the_single_registered_ttn_host_and_exact_path'] = (host == 'tokyo-trouble-navi-review-ai-off-2026.kmr8oji.workers.dev' and site['origin'] == 'https://' + host
                                                                              and '*' not in host and target_url == 'https://' + host + '/about')
         image = json.loads(launch.call('image', 'inspect', launch.image))[0]
         launch.image = image['Id']
@@ -321,7 +321,7 @@ def main():
 
         # ================================================================== GATE-A: OS egress CLOSED
         ok = True
-        for bad in ({'hosts': ['example.com'], 'max_grants': 1}, {'hosts': [host], 'max_grants': 2}, {'hosts': [host, 'www.' + host], 'max_grants': 1}, {'hosts': ['noxiworks-sample.test'], 'max_grants': 1}):
+        for bad in ({'hosts': ['example.com'], 'max_grants': 1}, {'hosts': [host], 'max_grants': 2}, {'hosts': [host, 'www.' + host], 'max_grants': 1}, {'hosts': ['noxiworks.com'], 'max_grants': 1}):
             try:
                 out, _ = launch.bounded(broker_check, json.dumps({'mode': 'system', 'real_site_access': True, 'target_id': 'ttn-home', 'device': device, 'ttl': TTL, **bad}).encode() + b'\n', seconds=20)
                 ok &= b'"ready"' not in out

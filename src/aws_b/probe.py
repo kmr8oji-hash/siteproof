@@ -78,9 +78,15 @@ def build_request(hostname: str, path: str) -> bytes:
             ).encode("ascii")
 
 
+class IncompleteStatusLine(ValueError):
+    """The connection ended after some bytes but before the status line was terminated by CRLF. Nothing in such a line is a verdict: it is never
+    parsed (a cut-off "HTTP/1.1 200" must not become a 200). A deadline that cut the read is a timeout (the caller's DeadlineTransport says so)."""
+
+
 def read_status_line(recv: Callable[[int], bytes], deadline: float,
                      clock: Callable[[], float] = time.monotonic) -> bytes:
-    """Read until the first CRLF, bounded in bytes and time. The body is never read."""
+    """Read until the first CRLF, bounded in bytes and time. The body is never read. Only a CRLF-terminated line is returned (or b"" when the
+    peer sent nothing at all); an end of stream inside an unterminated line raises IncompleteStatusLine."""
     data = b""
     while b"\r\n" not in data:
         if len(data) >= MAX_RESPONSE_HEAD_BYTES:
@@ -89,6 +95,8 @@ def read_status_line(recv: Callable[[int], bytes], deadline: float,
             raise TimeoutError("probe deadline")
         chunk = recv(min(4096, MAX_RESPONSE_HEAD_BYTES - len(data)))
         if not chunk:
+            if data:
+                raise IncompleteStatusLine("status line not terminated")
             break
         data += chunk
     return data.split(b"\r\n", 1)[0]
@@ -169,6 +177,8 @@ def run_probe(config: MonitorConfig, *, resolver: Callable[[str], Any],
         return done(CheckOutcome.FAIL, "HTTP_TIMEOUT", selected_ip=ip)
     except OSError:
         return done(CheckOutcome.FAIL, "HTTP_IO_ERROR", selected_ip=ip)
+    except IncompleteStatusLine:
+        return done(CheckOutcome.UNKNOWN, "HTTP_INCOMPLETE", selected_ip=ip)
     except Exception:
         return done(CheckOutcome.UNKNOWN, "HTTP_EXCHANGE_ERROR", selected_ip=ip)
     finally:

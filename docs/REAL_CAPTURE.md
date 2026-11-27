@@ -4,7 +4,7 @@ SiteProofが実サイトを撮影するのは、**利用者が自分の鍵で署
 
 実装：`src/noxiworks/permit.py`（許可の検証）、`src/noxiworks/real_capture.py`（アダプター）、`src/noxiworks/site_monitor.py`（自動監視）、`tests/runtime/validate_s3t.py` ほか（撮影ハーネスの許可モード）。
 
-> 実サイトでの確認は、利用者が自分のサイト・自分の許可で、承認を受けて行います（確認の計画書は公開していません）。
+> 実サイトでの確認手順は [REAL_SITE_E2E_PLAN.md](REAL_SITE_E2E_PLAN.md)。
 >
 > **2026-11-21：本人管理サイト1件（Hello, My Saitama、workers.dev）で実サイトE2Eを実施しました。** 署名付き許可（CLOUDFLARE_ACCOUNT_CONTROL）→ GATE-A〜C → 実撮影（Desktop・Mobile、STABLE）→ Baselineの自動作成 → 2回目の撮影とBaselineとの比較（変化ピクセル 0）まで、許可モードのハーネスで動作しました。比較の判定は「判定不能」（このサイトのトップページが外部の天気・地図に接続し、それを遮断したため。仕様どおり）。実測で見つかった不具合（ハーネスの起動方法、許可モードでの安定性の照合、Baseline作成時の安定ショットの判定、大きなページの画像サイズ上限）は修正済みです。
 
@@ -23,13 +23,19 @@ SiteProofが実サイトを撮影するのは、**利用者が自分の鍵で署
 ```powershell
 # 1. 初回セットアップ（利用者が自分のシェルで1回。登録・鍵・信頼する鍵・所有権の確認・許可の署名・準備の確認をまとめて行う）
 py -3.15 -B tools/setup_monitoring.py --data <データ> --url https://my-worker.my-sub.workers.dev/ --ownership cloudflare --days 30
-#    workers.dev 以外：--ownership well-known-file --verified-at <自分で確認したUTC時刻>（または dns-txt）
+#    workers.dev 以外：先に tools/dns_ownership.py で DNS TXT の確認を済ませ、--ownership dns を指定する（DNSの照会は OWNERSHIP_DNS_ENABLED = False の間は行わない）
+#    --ownership well-known-file / dns-txt（自己申告）は、何も作らず・変えずに拒否される
 #    アプリで登録済みなら --url は不要。署名の前に内容を表示して確認を求める（ssh-keygen が鍵のパスフレーズを尋ねる）
 # 2. 監視：アプリを起動する（開いている間は自動監視）か、アプリを閉じていても監視するタスクを登録する
 py -3.15 -B tools/background_monitor.py install --data <データ>     # 15分ごとに「予定の検査があれば1回」。status / remove もある
 # 3. 更新：期限が近づいたら、同じセットアップをもう一度（--ownership を省くと既存の証拠を使う。Baselineは署名付きで引き継ぐ）
 ```
 
+- **1回だけ試す（限定実撮影）**：`--max-runs 1 --manual-only` を付けます。
+  - `--max-runs N`（1以上の整数）：許可の最大撮影回数を、計算値ではなく N にします（署名の対象）。0・負数・整数以外は、鍵や許可に触れる前に拒否します。省略すると従来どおり、期間と検査間隔から自動計算します。
+  - `--manual-only`：署名の前（確認画面で「y」の後）に自動監視を停止し、署名後も開始しません（`enabled` だけを false にし、`next_due_at` などは変えません）。アプリを開いても、バックグラウンドタスクがあっても、予定の撮影は始まりません。撮影は画面の「今すぐ再検査」（または `python -m src.noxiworks.site_monitor --data <データ>` を1回）で、利用者が行います。検査が実行中（`monitor.lock` がある）のときは、安全に切り替えられないため、何も変更せずに中止します。
+  - 例：`py -3.15 -B tools/setup_monitoring.py --data <データ> --days 1 --max-runs 1 --manual-only`
+  - 失敗した撮影も1回に数えるため、`--max-runs 1` で失敗すると、その許可は使い切りです。Baselineの引き継ぎ・所有権の確認・署名・通信制限は、これまでと同じです。
 - `setup_monitoring.py` は利用者の鍵で署名します。アプリ（`src/`）は鍵を持たず、署名もしません（認可の境界は変わりません）。
 - 撮影回数の上限は、期間と検査間隔から自動で決めます（予定の回数＋手動の再検査・失敗の分）。
 - `background_monitor.py tick` は、予定の検査があるときだけ動きます。Docker Desktopが応答しないときは起動を待ってから実行します。
@@ -62,7 +68,7 @@ ssh-keygen -Y sign -n siteproof-monitoring-permit -f $HOME\.ssh\siteproof_permit
   "valid_from": "2026-11-21T00:00:00Z",
   "valid_until": "2026-12-21T00:00:00Z",
   "max_runs": 720,
-  "ownership": {"method": "well-known-file", "verified_at": "2026-11-20T12:00:00Z"},
+  "ownership": {"method": "CLOUDFLARE_ACCOUNT_CONTROL", "...": "下の「所有権の確認方法」を参照"},
   "identity": {"files": {"<IDENTITY_FILES の各ファイル>": "<SHA-256>"}, "image_id": "sha256:...", "bundle_manifest_sha256": "..."},
   "baseline_policy": "AUTO_INITIAL_THEN_COMPARE"
 }
@@ -77,8 +83,9 @@ ssh-keygen -Y sign -n siteproof-monitoring-permit -f $HOME\.ssh\siteproof_permit
 
 | 方法 | 使える対象 | 許可に記録するもの |
 |---|---|---|
-| `well-known-file` | すべて | 方法・確認日時（利用者が自分のサイトに確認用ファイルを置いて確認する） |
-| `dns-txt` | すべて | 方法・確認日時（利用者がDNSのTXTレコードで確認する） |
+| `well-known-file` | **選べない（現在この確認方法には対応していません）** | 方法・確認日時だけでは照合できないため、アプリもハーネスも拒否します。さらに、画面（選べない表示）とセットアップツール（最初に拒否。鍵・信頼する鍵・許可・許可の履歴を作らず、既存の許可も変えない）で、署名できないようにしています |
+| `dns-txt`（自己申告） | **選べない（現在この確認方法には対応していません）** | 同上 |
+| `DNS_TXT_CHALLENGE` | 公開ホスト名なら**どのサイトでも**（独自ドメイン可） | 方法・確認日時・証拠ファイルのSHA-256（トークンそのものは記録しない）。`tools/dns_ownership.py`（issue → DNSにTXTを登録 → check）が作る証拠。**DNSの照会は `OWNERSHIP_DNS_ENABLED = False` の間は行わないため、現在は確認を完了できません**（オフラインのテストでだけ確認済み） |
 | `CLOUDFLARE_ACCOUNT_CONTROL` | **Cloudflare Workersの `<Worker名>.<サブドメイン>.workers.dev` だけ**（カスタムドメインは不可） | 方法・確認日時・アカウントIDのSHA-256・Worker名・サブドメイン・証拠ファイルのIDとSHA-256 |
 
 `CLOUDFLARE_ACCOUNT_CONTROL` は、そのWorkerを持つCloudflareアカウントを利用者が管理していることを、利用者が自分の認証で確認した記録です。workers.devのサブドメインはアカウントごとに一意なので、ホスト名がそのアカウントのWorkerを指すときだけ所有権の確認になります。SiteProofはこの確認のためにCloudflareへ通信しません。
@@ -92,8 +99,7 @@ ssh-keygen -Y sign -n siteproof-monitoring-permit -f $HOME\.ssh\siteproof_permit
 }
 ```
 
-証拠ファイル `<データ>\sites\<site>
-eal\ownership-evidence.json`（利用者が置く）：
+証拠ファイル `<データ>\sites\<site>\real\ownership-evidence.json`（利用者が置く）：
 
 ```json
 {
@@ -124,11 +130,46 @@ eal\ownership-evidence.json`（利用者が置く）：
 
 | # | 条件 | 確認の内容 |
 |---|---|---|
-| 1 | 本人管理サイトの確認 | 署名付き許可に、確認方法（well-known-file・dns-txt・CLOUDFLARE_ACCOUNT_CONTROL）と確認日時がある。CLOUDFLARE_ACCOUNT_CONTROLは、ホスト名と証拠ファイルの一致も確認する。自己申告だけでは成立しない |
+| 1 | 本人管理サイトの確認 | 署名付き許可に、照合できる確認方法（CLOUDFLARE_ACCOUNT_CONTROL）と確認日時があり、ホスト名と証拠ファイルが一致する。照合が未対応の方法（well-known-file・dns-txt）と自己申告だけでは成立しない |
 | 2 | 監視許可 | 署名が正しい（信頼する鍵・名前空間・内容の改変なし）。サイト・ページ・ホストが登録内容と一致する。対象設定ファイルのハッシュが一致する。有効期間内。撮影回数が残っている（`trust/permit-ledger/<permit_id>.jsonl`。撮影ハーネスが排他ロックのもとで、コンテナを起動する前に1回分を記録する。アプリは読むだけ。再起動・並列実行・失敗後も数え直さない） |
 | 3 | 撮影構成の同一性 | 許可が固定するファイルが今と同じ。撮影イメージIDがある。Baselineがあるときは、そのBaselineがこの許可で作られ、作成時から変わっていない |
-| 4 | 撮影環境 | Docker CLIと ssh-keygen がある |
+| 4 | 撮影環境 | Dockerのエンジンが応答し、ssh-keygen がある |
 | 5 | 撮影ハーネスの対応 | トップページ（/）である（ハーネスとブローカーは、許可された1ホストのトップページだけを扱う） |
+| 6 | 撮影イメージ | 許可のイメージIDがハーネスの要求と同じで、そのイメージがこのPCのDockerにある（他の条件が整ったときだけ `docker image inspect` で確認。取得・ビルドはしない。ない・違うときは撮影せず、許可の回数も使わない） |
+
+## 撮影イメージの準備
+
+撮影は、**固定した1つのDockerイメージ**だけで行います。許可の `identity.image_id` と、撮影ハーネス（`tests/runtime/validate_s3t.py` の `M5_IMAGE`）が要求するIDは、どちらも次の値です。
+
+```
+sha256:9c88112b42070369876fdb24476af283b3908a3fdc630b66fedacf4f20c4d2c8
+```
+
+ハーネスはこのIDで `docker image inspect` を行い、一致しなければ止まります（タグ名は見ません）。アプリは、他の条件が整った後に同じ読み取りだけを行い（取得・ビルドはしません）、「撮影イメージ（Docker）」の項目に結果を出します。ない・違うときは撮影せず、許可の回数も使いません。
+
+**1. このPCにあるかの確認（利用者が自分で行う。読み取りだけ）**
+
+```powershell
+docker --context desktop-linux image inspect --format "{{.Id}}" sha256:9c88112b42070369876fdb24476af283b3908a3fdc630b66fedacf4f20c4d2c8
+```
+
+上のIDが1行表示されれば、準備はできています。`No such image` と出たら、このPCにはありません。HOMEの「撮影イメージ（Docker）」も同じ結果を表示します。
+
+**2. このイメージは何か（リポジトリのファイルから分かる範囲）**
+
+| 段 | 作り方 | 中身 |
+|---|---|---|
+| 土台 | `runtime/docker/Dockerfile` を `tests/runtime/build_image.py` でビルド（タグ `siteproof-m2-runtime:20261105`） | Microsoft公式のPlaywrightイメージ（ダイジェスト固定）に、`apt-get`（iptables・iproute2・libnss3-tools）と `pip`（Playwright 1.64.1）を追加。**インターネットからのダウンロードを伴う** |
+| 上の層 | `tests/runtime/build_m5.py`（タグ `siteproof-m5-runtime:local`） | 土台のイメージIDの上に、その時点の `src`・`web`・`runtime`・`tests` のファイルを `COPY` するだけ（実行・ダウンロードなし） |
+
+固定IDは、上の層の結果です。
+
+**3. ない場合に必要な準備 ― 現在の状況（未確立）**
+
+- 上の手順で自分のPCでビルドしても、**同じIDになる保証はありません**。理由は、土台が `apt-get` と `pip` の実行時点の内容に依存すること、上の層に `src` などの現在のファイルが入ること、Dockerのビルドが作成日時をイメージに記録することです。同じIDを再現した記録は、リポジトリにありません。
+- ハーネスのIDは固定です。**IDを書き換えると、撮影ハーネスの固定ファイルの内容が変わり、署名済みの許可がすべて無効になります**。IDを合わせるために固定値を変えることはしません。
+- したがって、**固定イメージを持っているPC（作者のPC）以外で撮影を始める方法は、まだありません**。別のPCへ同じイメージを渡す方法として、`docker save` / `docker load`（IDが保たれる標準の仕組み）が考えられますが、**この環境では検証していません**。必要なら、別途承認を取って検証します。
+- 固定イメージを置き換える場合は、新しいIDで撮影ハーネスを更新し、検証したうえで、許可を新しく署名し直す手順が必要です（別Slice）。
 
 ## 撮影ハーネスの許可モード（一般サイトへの対応）
 
@@ -151,8 +192,8 @@ DNS（1つのIPv4:443だけを許可）、ブローカー、プロキシ、リ�
 1. **撮影ハーネスの許可モードの実地検証**：Dockerを使うGATE-A〜C・撮影windowを、承認を受けて実行し、許可モードで通信制限が維持されることを確認する。
 2. **所有権の確認手順**：確認用ファイルまたはDNSの照合は実サイトへのアクセスを伴うため、その方法と承認が必要。workers.devのホストは `CLOUDFLARE_ACCOUNT_CONTROL` で、実サイトにアクセスせずに確認できる（2026-11-21追加。合成データのオフラインテストでだけ確認済み）。撮影ハーネスも、Dockerを呼ぶ前に署名と所有権の記録（CLOUDFLARE_ACCOUNT_CONTROLでは証拠ファイルも）を同じコードで確認する（`permit_preflight`）。
 3. **利用者の署名鍵の作成と配置**：今回は合成鍵だけを使った。
-4. **撮影イメージ**：許可に固定する撮影イメージの準備（Dockerイメージのビルドは別承認）と、ブラウザbundleのmanifest値。
-5. **許可の更新**：「監視設定を更新」（セットアップの再実行）でBaselineを署名付きで引き継ぎます（上の「使い方」）。引き継がずに別の許可で作ったBaselineでは撮影しません。更新の実サイトでの通し確認は未実施です。
+4. **撮影イメージ**：準備の手順は下の「撮影イメージの準備」。**固定イメージを別のPCで再現する方法は未確立**です（同じIDになる保証がありません）。ブラウザbundleのmanifest値は、セットアップが自動で許可に記入します。
+5. **許可の更新**：新しい許可で既存のBaselineを引き継ぐ方法は未実装（現在は、別の許可で作ったBaselineでは撮影しない）。
 6. **信頼の範囲（ローカルの攻撃者への限界）**：信頼する鍵のファイル（allowed_signers）、撮影回数の記録（permit-ledger）、PCの時計は、このPCのファイルや設定を書き換えられる人なら差し替え・リセットできる。撮影ハーネスを直接実行する人が自分の鍵と信頼ファイルを用意することも防げない（その人はDockerを直接使えるので、SiteProofが追加の権限を与えるわけではない）。PCの管理者を信頼する前提。推奨：信頼する鍵のファイルだけを、利用者アカウントでは読み取り専用にする（例：`icacls <データ>\trust\allowed_signers /inheritance:r /grant:r "%USERNAME%:R" /grant:r "Administrators:F"`）。`trust\permit-ledger` フォルダは撮影ハーネスが書き込むため、書き込み可能のままにする。署名用の秘密鍵は、データフォルダの外にパスフレーズ付きで置く。
 7. **撮影回数の数え方**：撮影ハーネスが、署名・対象・識別情報を確認した後、コンテナを起動する前に、排他ロックのもとで1回分を記録する（上限なら拒否）。ハーネスを直接実行しても上限を超えない。失敗した撮影も1回として数える。
 8. **対象ページ**：トップページ（/）のみ対応。

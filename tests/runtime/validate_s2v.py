@@ -237,7 +237,7 @@ def main():
             'overlay': {'src': {'sha256': src_digest, 'files': src_files}, 'tests/runtime': {'sha256': rt_digest, 'files': rt_files}},
             'window_cap_seconds': WINDOW_CAP, 'max_grants': 1, 'single_lease': 'verify'})
         checks['flag_false_in_source_at_start'] = re.search(r'^REAL_SITE_ACCESS_ENABLED = False$', sp_text, re.M) is not None
-        checks['target_is_the_single_approved_host'] = host == 'noxiworks-sample.test' and url == 'https://noxiworks-sample.test/'
+        checks['target_is_the_single_approved_host'] = host == 'noxiworks.com' and url == 'https://noxiworks.com/'
         image = json.loads(launch.call('image', 'inspect', launch.image))[0]
         launch.image = image['Id']
         launch.save('run-conditions.json', {'docker_server': launch.call('version', '--format', '{{.Server.Version}}').strip(), 'host': platform.platform(),

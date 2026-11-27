@@ -10,6 +10,8 @@ Capture mode in MVP v1.0 is OFFLINE FIXTURE only: the capture step is the offlin
 back a synthetic page image; no browser starts and nothing connects to the site. Every run says synthetic: true, so the pages show
 it as 合成デモ. Real capture needs an ownership check, an approved egress grant and the pinned capture environment
 (docs/REAL_CAPTURE.md); readiness() reports each of them and real capture stays disabled until all are met (not implemented).
+Several pages: Site works on any unit folder (a site's first page is the site folder, a further page <site>/pages/<site id>-p2..p5); register_page() adds
+one. A unit shares nothing with another (see src/noxiworks/sites.py).
 approve() makes the newest capture Baseline v1. It is called by site_monitor for the first inspection whose Desktop and Mobile
 captures completed and were STABLE (origin AUTO_INITIAL, shown as "自動作成（未確認）" until the user confirms it, which is a
 separate record), or with origin USER for a person's approval. A detected change never calls it; replacing a Baseline is not
@@ -29,6 +31,7 @@ from src.baseline.model import BaselineStatus
 from src.comparison import preview
 from src.comparison.operational import present
 from src.comparison.service import MAX_PIXELS
+from src.noxiworks import sites
 from src.runtime.stability import policy
 
 PROFILES = {'Desktop': {'kind': 'Desktop', 'width': 1440, 'height': 900, 'full_page': True},
@@ -119,7 +122,6 @@ class Site:
     # ---- registration
     @classmethod
     def register(cls, sites_dir, name, url, kinds, owner_confirmed, now):
-        from src.noxiworks.capture import create_runtime
         if owner_confirmed is not True:
             raise SiteRefused('「自分が管理するサイトです」の確認が必要です')
         name, origin, page_url, path, kinds = check_input(name, url, kinds)
@@ -133,7 +135,16 @@ class Site:
         tmp = Path(sites_dir) / ('.tmp-' + site_id)
         shutil.rmtree(tmp, ignore_errors=True)
         tmp.mkdir(parents=True)
-        label = 'トップページ' if path == '/' else path
+        owner = {'declared': True, 'declared_at': format_utc(now), 'verified': False}
+        cls._write_unit(tmp, site_id=site_id, page_id=page_id, name=name, origin=origin, page_url=page_url, path=path,
+                        label='トップページ' if path == '/' else path, kinds=kinds, owner=owner, now=now)
+        tmp.rename(root)
+        return cls(root)
+
+    @staticmethod
+    def _write_unit(tmp, *, site_id, page_id, name, origin, page_url, path, label, kinds, owner, now):
+        """The files of one unit folder (a site's first page or a further page): the same layout, nothing shared with any other unit."""
+        from src.noxiworks.capture import create_runtime
         profiles = [PROFILES[k] for k in kinds]
         host = urlsplit(origin).hostname
         targets = {'schema': 'siteproof.targets.v1', 'http_interval_seconds': 21600, 'capture_interval_seconds': 86400,
@@ -150,12 +161,58 @@ class Site:
         (tmp / 'runs').mkdir()
         (tmp / 'ui').mkdir()
         info = {'schema': 'siteproof.app-site.v1', 'site_id': site_id, 'page_id': page_id, 'name': name, 'origin': origin, 'url': page_url,
-                'label': label, 'kinds': kinds, 'registered_at': format_utc(now),
-                'owner': {'declared': True, 'declared_at': format_utc(now), 'verified': False},
-                'capture_mode': 'OFFLINE_FIXTURE'}
+                'label': label, 'kinds': kinds, 'registered_at': format_utc(now), 'owner': owner, 'capture_mode': 'OFFLINE_FIXTURE'}
         (tmp / 'site.json').write_text(json.dumps(info, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-        tmp.rename(root)
-        return cls(root)
+        return info
+
+    @classmethod
+    def register_page(cls, site, path_or_url, label, kinds, now):
+        """Add a further page (same origin) of `site` (its first page) as a unit folder <site>/pages/<site id>-p2..p5. -> the new page's Site.
+        Nothing is copied from the first page or any other page (no permit, grant, Baseline, run, history, setting): the page starts with image
+        monitoring OFF and HTTP not configured. The harness captures only the top page `/`, so a further page has no image capture (never a substitute)."""
+        first = sites.site_root_of(site.root)
+        if Path(site.root).resolve() != first:
+            raise SiteRefused('ページを追加できるのは、サイトの最初のページからだけです')
+        first_info = json.loads((first / 'site.json').read_text('utf-8'))
+        text = (path_or_url or '').strip()
+        label = (label or '').strip() or (text if text.startswith('/') else urlsplit(text).path or '/')
+        if not 1 <= len(label) <= 60 or any(ord(c) < 32 for c in label):
+            raise SiteRefused('ページ名は1〜60文字で入力してください')
+        if text.startswith('/') and not text.startswith('//'):
+            text = first_info['origin'] + text
+        _, origin, page_url, path, kinds = check_input(first_info['name'], text, kinds)
+        if origin != first_info['origin']:
+            raise SiteRefused('追加できるのは、このサイトと同じホスト（' + urlsplit(first_info['origin']).hostname + '）のページだけです')
+        from src.noxiworks import http_authority
+        wrong = http_authority.target_problems({'url': page_url})  # what the HTTP monitor could never check ('..', over-long or odd paths) is not added
+        if wrong:
+            raise SiteRefused('このページは追加できません：' + '／'.join(wrong))
+        units = sites.units(first)
+        known = {json.loads((u / 'site.json').read_text('utf-8'))['url'] for u in units}
+        if page_url in known:
+            raise SiteRefused('このページはすでに登録されています')
+        folder = first / 'pages'
+        taken = {p.name for p in folder.iterdir()} if folder.is_dir() else set()  # any folder, broken or hidden ones too: an id is never used twice
+        if len(units) >= sites.MAX_PAGES:
+            raise SiteRefused(f'1つのサイトに登録できるページは、最初のページを含めて{sites.MAX_PAGES}つまでです')
+        free = [f"{first.name}-p{n}" for n in range(2, sites.MAX_PAGES + 1) if f"{first.name}-p{n}" not in taken and f".tmp-{first.name}-p{n}" not in taken]
+        if not free:
+            raise SiteRefused('ページの番号（p2〜p%d）を使い切りました。番号は再利用しません' % sites.MAX_PAGES)
+        page_id = free[0]
+        folder.mkdir(exist_ok=True)
+        tmp = folder / ('.tmp-' + page_id)
+        shutil.rmtree(tmp, ignore_errors=True)
+        tmp.mkdir()
+        try:
+            cls._write_unit(tmp, site_id=first.name, page_id=page_id, name=first_info['name'], origin=origin, page_url=page_url, path=path, label=label, kinds=kinds,
+                            owner=first_info.get('owner') or {'declared': True, 'declared_at': format_utc(now), 'verified': False}, now=now)
+            from src.noxiworks.site_monitor import default_settings
+            (tmp / 'monitor.json').write_text(json.dumps({**default_settings(now), 'enabled': False, 'next_due_at': None}, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+            tmp.rename(folder / page_id)
+        except BaseException:
+            shutil.rmtree(tmp, ignore_errors=True)
+            raise
+        return cls(folder / page_id)
 
     # ---- saved state
     def runs(self):
@@ -215,8 +272,9 @@ class Site:
              'state': 'Docker CLIあり（撮影イメージは未確認）' if docker_found else 'Dockerが見つかりません',
              'guide': '撮影は、固定したChromiumイメージを Docker で動かし、通信制御を通して行います。イメージの準備手順はまだ公開していません。'},
             {'key': 'harness', 'label': '実撮影ハーネスの対応', 'ok': False,
-             'state': 'このサイトは未対応',
-             'guide': '現在の実撮影ハーネスは、承認済みの1ページ（Tokyo Trouble Navi トップページ）専用です。任意のサイトへの対応は未実装です（docs/REAL_CAPTURE.md）。'}]
+             'state': 'このサイトは未対応' if self.info['url'].endswith('/') and self.info['url'].count('/') == 3 else 'トップページ（/）以外の画像撮影は未対応',
+             'guide': '現在の実撮影ハーネスは、承認済みの1ページ（Tokyo Trouble Navi トップページ）専用です。任意のサイトへの対応は未実装です（docs/REAL_CAPTURE.md）。'
+                      '撮影できるのはトップページ（/）だけで、追加したページの画像を撮影することはできません（別のページの画像で代用することもしません）。'}]
 
     # ---- capture (offline fixture)
     def capture(self, fixture, now):

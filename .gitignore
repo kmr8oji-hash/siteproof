@@ -31,7 +31,3 @@ __pycache__/
 *.pyc
 # Not for publication: patch against the private generator; contains the real account ID
 /docs/aws_portfolio/AWS_B_LITE_generator.patch
-# Personal settings (see README: SITEPROOF_TARGETS)
-/targets.local.json
-/capture_plan.local.json
-/*.local.json

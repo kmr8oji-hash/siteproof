@@ -4,13 +4,14 @@ SiteProofは、自分が管理するWebサイトのHTTP応答（死活）、画�
 
 このリポジトリは、SiteProofを題材にした **AWSの設計・実装・運用のポートフォリオ** も兼ねています。実AWSや実サイトで確認した範囲（実測）、合成データで動きを示す範囲（合成デモ）、設計・実装だけの範囲（未実証）を分けて記載します。
 
-> **MVP v1.0（2026-11-23）時点の状態**
-> - **AWS-B Lite Trialは2026-11-23 19:00 JSTに監視を停止し、同日中にTrial専用の主要AWSリソースを撤収しました。** 現在、Trialの定期監視は稼働していません。当初の停止予定は2026-11-27 12:00 JSTでしたが、2026-11-23 19:00 JSTへ前倒ししました（AWS-B Liteは期限つきのTrialで、長期の安定稼働は実証していません）。残っているのは、共有候補のIAM権限境界ポリシー2件、保持期間中のCloudWatchカスタムメトリクス、ローカルの非公開の検証証拠とバックアップです。AWSの実請求額は未確認（UNKNOWN）です。
+> **実用版 Release Candidate 1（2026-11-26）時点の状態**（受入確認の手順と既知の制限は [docs/RELEASE_CANDIDATE.md](docs/RELEASE_CANDIDATE.md)）
+> - ローカルアプリ：複数サイト（20まで）・複数ページ（1サイト5まで）、画像監視、このPCからのHTTP監視（TLS期限を含む）、障害・復旧の検知、アプリ内通知、メール通知、所有権の確認（workers.dev・DNSのTXT）、Windowsのバックグラウンド監視、バックアップ・復元を実装済み。**HTTP・メール・DNSの外部通信のスイッチは無効に戻してあります**（実環境の確認：画像監視・HTTP監視・バックグラウンド監視・メールの送受信。日常の利用はUSERが署名と有効化を行う）。
+> - HTTP監視の隔離（1回ごとの隔離コンテナ）は、外部ネットワークのない模擬環境で **18/18 PASS**。本人管理サイト（workers.dev）で限定試験4回を実測（2026-11-26・すべて HTTP 200・隔離違反なし。RELEASE_CANDIDATE.md 5.2）。
+> - HTTP監視（AWS-B）は5ページで15分ごとに稼働中です。**AWS-B Liteは期限つきのTrial** で、停止期限は **2026-11-27 12:00 JST** です（停止は予定で、実施前です。ずっと動くクラウドサービスではありません）。
 > - 低コスト版の **AWS-B Lite** は、1ページ＋一時fixtureで実測検証し（Stage A）、5ページすべてへ適用しました（Stage B、2026-11-23、AWSの記録を読み戻して確認）。6時間・12時間間隔は **未検証**、AWSの実請求額は **UNKNOWN** です。Heartbeat Alarmは移行前後に6回OK⇄ALARMを繰り返しました（誤報の可能性があり、落ち着くかは未確認）。
-> - 画像比較は、実サイト（Tokyo Trouble Navi トップページ）で Desktop / Mobile の Baseline比較を1回実証しました。**定期的な画像監視は未完成**です。
+> - 画像監視は、本人管理の実サイト1件（Tokyo Trouble Navi トップページ）で実撮影・Baseline比較・自動監視に成功しています（それ以前の構成で実施。**最新の構成での実環境の通し確認は未実施**）。
 > - 総合品質（strict quality）は常に **UNKNOWN** です。SiteProofは表示品質のPASSを判定しません。
 > - AWS内の独立Stopperは **未適用** です（後述の「既知の制限」）。
-> - `.local/` に保存した実環境の検証証拠（AWSの出力・ログ・保存データなど）は非公開で、この公開リポジトリには含まれません。
 
 ![HOME（合成デモ）](docs/images/demo/01-home.png)
 
@@ -28,7 +29,7 @@ CloudWatch Syntheticsの代替ではありません。機能の数では上回�
 
 > 初めての方は、Windowsでのインストールから、サイト登録・所有権の確認・監視許可・Baseline・監視の開始と停止・AWS保存結果の取り込み・データの場所・安全な終了までを順に説明した **[利用ガイド（docs/USER_GUIDE.md）](docs/USER_GUIDE.md)** を先に読んでください。
 
-**必要なもの**：Python 3.15（標準ライブラリのみ）と、Webブラウザ（Firefox・Edge・Chromeなど）。AWS認証、Docker、インターネット接続は不要です。
+**必要なもの**：Python 3.15（標準ライブラリのみ）と、Webブラウザ（Firefox・Edge・Chromeなど）。AWS認証は不要です。画面の確認と合成デモには、Dockerもインターネット接続も不要です（実サイトの撮影とHTTP監視の検査には、Docker Desktopと固定イメージが必要です）。
 
 > 動作確認はPython 3.15（Windows 11）とFirefox 160で行いました。Python 3.12より前では起動しません（3.10で構文エラーを確認）。3.12〜3.14は未検証です。
 
@@ -56,7 +57,7 @@ macOS / Linux では `python3 -B -m src.noxiworks.app` を使います。
 
 - **実サイト撮影の条件が整うまで、撮影しません（重要）**：登録しただけでは、結果（撮影・Baseline・比較）は出ません。HOMEやREVIEWは「未撮影」「未取得」と表示します。撮影の条件（本人管理の確認・署名付き監視許可・撮影構成の同一性・Docker）は、HOMEの「実サイト監視の準備」に表示されます。条件を満たした場合だけ、署名付き許可の範囲内で、実サイトを撮影します（実サイトでの通しの確認は、作者の1サイトに限ります）。
 - **合成デモ（`/demo/`）**：「同じ画面」「変更あり（画面上部に赤い帯）」「撮影が不安定」から画像を選んで検査できます。製品と同じ経路（撮影Job → RuntimeService → S1証拠保存 → ComparisonService → Baseline承認）を通し、結果はそれぞれ、変更なし・変更を検知（差分画像つき）・判定不能（撮影が安定していません）になります。画面には「サンプルデータ（デモ）」「合成デモ」と表示され、登録したサイトの結果とは混ざりません。
-- 登録できるのは **1サイト・1ページ** です。URLは https の公開ホスト名に限ります（IPアドレス、localhost、ポート番号、ログイン情報、? や # は使えません）。
+- サイトは **20まで**、1サイトにつきページは **5まで**（最初のページを含む。追加したページはHTTP監視だけで、画像の撮影はトップページだけ）登録できます。URLは https の公開ホスト名に限ります（IPアドレス、localhost、ポート番号、ログイン情報、? や # は使えません）。
 - 固定の合成デモ（Tokyo Trouble Navi を模した画面）は `http://127.0.0.1:8765/demo/` で、登録したサイトとは分けて表示します。
 - データの保存先は `%LOCALAPPDATA%\SiteProof`（Windows）または `~/.local/share/siteproof` です。`--data <フォルダ>` で変更できます。ポートは `--port`、ブラウザを開かない場合は `--no-browser` を指定します。
 - サーバーは `127.0.0.1` だけで待ち受けます。登録や補助操作には、同じ画面から取得した起動ごとの合言葉（トークン）が必要です。
@@ -77,23 +78,11 @@ macOS / Linux では `python3 -B -m src.noxiworks.app` を使います。
 | Baselineの正式承認・更新（変更後の画面を新しい基準にする） | **画面**（差分レビュー。利用者が押したときだけ。自動では行いません） |
 | 実サイトの撮影 | **自動（署名付き監視許可の範囲内のみ・実サイトでは未実証）**。条件の状況はHOMEの「実サイト監視の準備」に表示（[docs/REAL_CAPTURE.md](docs/REAL_CAPTURE.md)） |
 | 監視許可の発行 | **SiteProofではできません**（利用者が自分のSSH鍵で署名して置く） |
-| 外部への変更通知（メールなど） | 未対応（HOMEの表示のみ） |
-| HTTP監視 | アプリでは行いません（AWS-Bが担当）。自分のAWS-Bの結果は、保存して取り込むとHOMEに表示されます（下の行）。取り込むまでアプリ画面のHTTP欄は「未確認」です |
+| 外部への通知（メール） | 実装済み・オフライン検証済み。**実際の送信は無効**（[docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md)。有効化にはUSERの署名と承認が必要） |
+| HTTP監視 | このPCからのHTTP監視は実装済み・オフライン検証済み。**外部通信は無効**（[docs/HTTP_MONITORING.md](docs/HTTP_MONITORING.md)・[docs/HTTP_BOUNDARY.md](docs/HTTP_BOUNDARY.md)）。AWS-Bの結果は、保存して取り込むとHOMEに表示されます |
+| 導入・復元・更新 | 環境確認・保存先の選択・復元・停止・アンインストールの手順（[docs/INSTALL.md](docs/INSTALL.md)。オフライン検証済み・別PCでの通し確認は未実施） |
+| 複数サイト | 実装済み・オフライン検証済み（1サイトにつき最大5ページ。設定・許可・Baseline・履歴・通知はサイト・ページごとに分離。独自ドメインの所有権はDNS TXTチャレンジで確認） |
 | AWS-Bの保存結果の取り込み | **コマンド**（自分で保存した `aws dynamodb` の出力を `python -m src.noxiworks.archive import-export` で取り込む。[RUNBOOK §9.1](docs/aws_portfolio/RUNBOOK_AWS_B_LITE.md)）。取り込むとHOMEなどに反映。取り込み前は「未取得」と表示し、他人（作者）のAWS記録は出しません |
-
-### 自分の設定を使う（サンプル設定と個人用設定）
-
-リポジトリの `src/noxiworks/targets.json` は **サンプル設定** です（`*.test` のホスト名は実在せず、アクセスしません）。AWS-Bの保存結果の表示と静的デモが「既知のページ」として参照します。自分のサイトを監視するときは、アプリの「サイトを追加」で登録します（登録すると `<データ>\sites\<site-id>	argets.json` が作られます。署名付き監視許可はこのファイルのハッシュに固定されるので、あとから手で編集しないでください）。
-
-自分のページ一覧でCLIを使うときは、環境変数で指定します（リポジトリのファイルは書き換えません）。
-
-```powershell
-$env:SITEPROOF_TARGETS = "C:\path	o\my-targets.json"        # 書式は src/noxiworks/targets.json と同じ
-$env:SITEPROOF_CAPTURE_PLAN = "C:\path	o\my-capture_plan.json"  # 画像監視の計画（任意）
-py -3.15 -B -m src.noxiworks ...
-```
-
-個人用の設定ファイル（`targets.local.json` など）は `.gitignore` に入れ、公開しないでください。
 
 ## 6つの画面
 
@@ -150,8 +139,7 @@ flowchart LR
 |---|---|
 | **実測済み（Stage A、2026-11-21、1実ページ＋一時fixture、15分間隔）** | 障害検出・通知（重複なし）・復旧通知／SNS失敗時の保留・再送・復旧通知／管理側のAWSセッションが無効な間も監視と通知が継続／ページ単位の停止／通知メール8通の受信（利用者が確認） |
 | **実測済み（Stage B、2026-11-23、5ページ）** | 4ページを順にLiteへ移行し、5ページすべてで初回RUN・CONTROL・集約Heartbeatを読み戻して確認／取り込んだ保存結果は5ページ×56回すべて正常（失敗・判定不能0）／Roll-backは未検証 |
-| **実測済み（終了・撤収、2026-11-23）** | 停止期限を19:00 JSTへ前倒し（5ページの期限パラメータのみ変更、読み戻しで確認）。期限後のRUN・Heartbeatは0件で、期限後に届いた呼び出し1件はLambdaが拒否（PAST_ABSOLUTE_END）。同日中にTrial専用の主要AWSリソース（Alarm・Scheduler・Lambda・ログ・DynamoDB・IAMロール・スタック・SNS・S3）を撤収 |
-| **未実施・未検証** | 6時間・12時間間隔は未検証／UNKNOWN通知は未検証／Scheduler単体を止める試験は未実施（停止は絶対期限による停止のみ実測）／AWSの実請求額はUNKNOWN／独立Stopperは未適用 |
+| **未実施・未検証** | 6時間・12時間間隔は未検証／UNKNOWN通知は未検証／Schedulerを止める試験は未実施／AWSの実請求額はUNKNOWN／独立Stopperは未適用 |
 | 発見 | 欠測1回でもAlarmが発報する場合がありました（想定は連続2回）。正常観察74分の誤報は0件ですが、誤報がないことの証明ではありません |
 
 **費用の目安（推定。実請求ではありません）**：us-east-1、5ページ、6時間間隔、30日、無料枠なしで **約0.41 USD/月**。同条件で、通知まで含めたSynthetics（CloudWatch課金分のみ）は、ページ別Alarm付きで約1.22、サイト単位（3 Canary＋Alarm 3本）で約0.73です。Liteは、ページ別の通知が必要で間隔が約24時間より短い場合に有利です。約24時間以上でサイト単位の通知で足りる場合や、通知が不要で実行料金のみ（約0.22〜0.72）の場合は、Syntheticsのほうが安くなりえます。Syntheticsの他サービス（Lambda・S3等）の費用はUNKNOWNです。旧構成のAlarmなど残っている資源の費用は含みません。内訳・計算式・条件は [SYNTHETICS_COMPARISON.md](docs/aws_portfolio/SYNTHETICS_COMPARISON.md)。
@@ -200,8 +188,7 @@ macOS / Linux の場合は `python3 -B tools/build_offline_demo.py --out demo-ou
 | 2026-11-19 | 実サイトでの初回Baseline比較（限定承認）：Desktop・Mobileとも「変更なし」（差分0ピクセル）、ホスト側の確認84項目すべて成立 | 実測 |
 | 2026-11-20 | AWS-Bの停止期限を2026-11-27 12:00 JSTに設定し、5スタックで読み戻して確認（Lambdaが期限後のイベントを拒否、SchedulerのEndDate） | 実測 |
 | 2026-11-21 | AWS-B Lite Stage A：1実ページ＋一時fixtureで、障害検出・通知・再送・復旧通知、管理側セッション無効中の監視継続、ページ単位の停止を確認（正常観察は約74分、通知メール8通を利用者が確認）。Stage Bと6h／12h間隔は未実施・未検証 | 実測（Executor報告・ローカル保存記録で照合、USER確認） |
-| 2026-11-23 | AWS-B Lite Stage B：残り4ページをLiteへ移行（変更セットを確認してから各1回適用）。5ページで初回RUNとHeartbeatを確認。移行中にHeartbeat Alarmが6回OK⇄ALARM（落ち着くかはUNKNOWN）。この時点の停止期限は2026-11-27 12:00 JST（同日に前倒し、次の行） | 実測（AWSの記録を読み戻し、ローカルに取り込み済み） |
-| 2026-11-23 | AWS-B Lite Trialの終了：停止期限を19:00 JSTへ前倒し。期限後のRUN・Heartbeatは0件、期限後に届いた呼び出し1件はLambdaが拒否。同日中にTrial専用の主要AWSリソースを撤収（残置：共有候補のIAM権限境界ポリシー2件、カスタムメトリクス）。実請求額は未確認 | 実測（AWSの記録を読み戻し。証拠は非公開） |
+| 2026-11-23 | AWS-B Lite Stage B：残り4ページをLiteへ移行（変更セットを確認してから各1回適用）。5ページで初回RUNとHeartbeatを確認。移行中にHeartbeat Alarmが6回OK⇄ALARM（落ち着くかはUNKNOWN）。停止期限は2026-11-27 12:00 JSTのまま | 実測（AWSの記録を読み戻し、ローカルに取り込み済み） |
 | 随時 | 変更あり／判定不能の判定、Desktop／Mobileの比較、履歴・出来事の表示 | 合成デモ・自動テスト |
 
 実測の生ログ・DynamoDBの出力・撮影画像は、アカウント情報などを含むためリポジトリには入れていません（ローカル保管）。
@@ -216,7 +203,7 @@ py -3.15 -B tools/run_offline_tests.py
 
 ## 既知の制限（MVP v1.0）
 
-- **独立Stopperは未適用**：AWS-Bの停止は、Lambdaの期限チェック（層A）とSchedulerのEndDate（層B）の2層だけです。AWS内でリソースを止める独立Stopper（層C）は、現在のIAM権限ではデプロイできないため、コード（`src/aws_b/stopper.py`、`infra/aws_b/stopper.json`）だけを置いています。**完全な自律停止は未完成**です。期限後も監視リソースとアラームは残るため、停止の確認と削除は手動で行います（2026-11-23の撤収も手動で行いました）。
+- **独立Stopperは未適用**：AWS-Bの停止は、Lambdaの期限チェック（層A）とSchedulerのEndDate（層B）の2層だけです。AWS内でリソースを止める独立Stopper（層C）は、現在のIAM権限ではデプロイできないため、コード（`src/aws_b/stopper.py`、`infra/aws_b/stopper.json`）だけを置いています。**完全な自律停止は未完成**です。期限後も監視リソースとアラームは残るため、停止の確認と削除は手動で行います。
 - **strict qualityはUNKNOWN**：表示品質の合格・不合格は判定しません。撮影プロファイルは未認証（PROFILE_UNATTESTED）のままです。「変更あり」は画像に差があるという意味で、不具合の確定ではありません。
 - **外部リソースを遮断したページの比較は「判定不能」のまま**：外部の天気・地図などをallowlistで遮断したページは、画像が同じでも比較は判定不能になります（PASSにはしません）。撮影が完了して安定していれば、Baselineの承認はできます。外部リソースの遮断を理由にBaselineの承認条件を緩める機能は、MVPの対象外です。
 - **実サイトの自動監視は署名付き許可が必要で、未実証**：利用者が自分の鍵で署名した監視許可（OpenSSHの署名）が、登録したサイト・対象設定・撮影構成・期間・回数と一致するときだけ撮影し、許可の範囲内ではBaseline作成後の比較が自動で続きます（[docs/REAL_CAPTURE.md](docs/REAL_CAPTURE.md)）。許可がない間は撮影しません（合成画像で代わりに監視することもしません）。撮影ハーネスの許可モードと実サイトでのE2Eは、まだ実地で検証していません。対象はトップページ（/）のみです。アプリを閉じている間の監視は、利用者がOSのスケジューラーに登録した場合だけ動きます（登録例は未検証）。
@@ -231,7 +218,7 @@ py -3.15 -B tools/run_offline_tests.py
   - 実サイトの撮影は、承認済みの識別ファイル・固定したDockerイメージ・通信制御を前提とする開発用ハーネスでだけ実行できます（[docs/REAL_CAPTURE.md](docs/REAL_CAPTURE.md)）。
 - **テスト環境依存**（公開版での見え方）：
   - 非公開のテンプレート生成スクリプトと、ローカル証拠（`.local/`）を使うテストは、ファイルがない場合に理由を表示して**スキップ**します。
-  - `tools/export_capture_fixture.py` は、出力先を「新しいDドライブのフォルダ」に限定しています（書き出しが意図しない場所へ出ないための確認で、緩めていません）。このため `tests/test_noxiworks.py` の2件は、一時フォルダがDドライブにない環境では**スキップ**します（`TEMP` をDドライブに向けると実行され、成功します）。`tests/aws_b/test_live_fixture.py` の1件は、開発環境以外では**失敗**します。これは機能の制限で、失敗を隠していません。
+  - `tools/export_capture_fixture.py` などDドライブ前提の開発用ツールに依存するテストは、開発環境以外では**失敗**します（`tests/test_noxiworks.py` の2件、`tests/aws_b/test_live_fixture.py` の1件）。これは機能の制限で、失敗を隠していません。
   - `tests/aws_c/test_worker_entry.py` の1件は、Gitの作業ツリーが変更なしの状態であることを確認します。clone直後は成功し、Gitの外では失敗します。
 - **docs/aws_portfolio/** の資料は、`AWS_B_LITE.md` と `SYNTHETICS_COMPARISON.md`（2026-11-21〜22）を除き、2026-11-12〜13時点の内容で、11-15以降の継続監視は反映していません。
 
@@ -249,7 +236,7 @@ py -3.15 -B tools/run_offline_tests.py
 |---|---|
 | [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | 利用ガイド：インストール・サイト登録・監視許可・Baseline・監視の開始と停止・AWS保存結果の取り込み・データの場所・制限 |
 | [docs/DEMO_VIDEO.md](docs/DEMO_VIDEO.md) | 実演動画（2〜3分）の操作手順と台本 |
-| [docs/REAL_CAPTURE.md](docs/REAL_CAPTURE.md) | 実サイトの自動監視：署名付き監視許可、所有権の確認、セットアップ、撮影ハーネスの許可モード（実装済み。実サイトでの通し確認は作者の1サイトのみ） |
+| [docs/REAL_CAPTURE.md](docs/REAL_CAPTURE.md) | 実サイト撮影をアプリから開始するための接続方式（未実装） |
 | [docs/BACKGROUND_MONITORING.md](docs/BACKGROUND_MONITORING.md) | アプリを閉じている間の監視（OSのスケジューラー） |
 | [docs/aws_portfolio/ARCHITECTURE.md](docs/aws_portfolio/ARCHITECTURE.md) | 構成図、判定フロー、データフロー、状態遷移 |
 | [docs/aws_portfolio/EVIDENCE_INDEX.md](docs/aws_portfolio/EVIDENCE_INDEX.md) | 実測済み・USER確認・設計のみ・未検証の区分つき証拠索引 |

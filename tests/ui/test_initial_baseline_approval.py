@@ -255,7 +255,7 @@ class InitialApproval(unittest.TestCase):
                      'expected: targets', "button.setAttribute('disabled', '')", '正式な承認ではありません（確認済みでも同じです）', 'app-bigcheck'):
             self.assertIn(text, js)
         self.assertIn('var targets = s.baseline.targets', js)            # only while the Baseline is automatic
-        text = (ROOT / 'src/noxiworks/app.py').read_text('utf-8')
+        text = ''.join((ROOT / 'src/noxiworks' / n).read_text('utf-8') for n in ('app.py', 'site_app.py'))
         self.assertEqual(text.count('approve_baseline('), 1)              # one caller: the route, behind the token and the confirmation
         monitor = (ROOT / 'src/noxiworks/site_monitor.py').read_text('utf-8')
         self.assertNotIn('approve_baseline', monitor.split('def run(self', 1)[1])   # never from an inspection or a schedule

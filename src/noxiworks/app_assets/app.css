@@ -101,3 +101,74 @@
 .app-summary.is-error { border-color: #b3261e; background: #fdeeed; }
 .app-summary-item { display: flex; flex-direction: column; min-width: 140px; }
 .app-summary-label { font-size: 0.8rem; color: var(--muted, #4a5a78); }
+
+/* ---- several sites: the all-sites list, the switcher, the e-mail / storage / HTTP grant blocks (same palette) ---- */
+/* The list is the whole HOME then: the generated dashboard behind it holds no site and would read as "nothing changed". */
+.app-all-sites #main > :not(.app-run-panel) { display: none !important; }
+.app-site-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; margin: 10px 0; }
+.app-site-card { padding: 12px 14px; border: 1px solid #c8d0dc; border-left: 8px solid #c8d0dc; background: #fff; }
+.app-site-card.is-ok { border-left-color: #0b7a4b; }
+.app-site-card.is-attention { border-left-color: var(--amber, #ffb020); background: #fff8e8; }
+.app-site-card h3 { margin: 0 0 4px; font-size: 1.1rem; }
+.app-site-card .app-facts { margin: 6px 0; }
+.app-card-attention ul { margin: 4px 0; padding-left: 18px; }
+.app-card-attention li.is-warn, #http-gaps li.is-warn { color: #8a4b00; font-weight: 700; }
+.app-site-card .app-run-form { margin: 6px 0; }
+.app-site-switcher { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 12px; padding: 8px 12px; border: 1px solid #c8d0dc; background: #f2f5fa; }
+.app-site-switcher select { min-height: 36px; padding: 2px 8px; font: inherit; max-width: 100%; }
+#http-grant, #notify-panel .app-facts { margin-top: 8px; }
+#notify-recent li.is-ok { color: #0b7a4b; }
+#notify-recent li.is-warn { color: #8a4b00; }
+#notify-recent li.is-error { color: #b42318; font-weight: 700; }
+#storage-panel h3 { margin: 12px 0 4px; font-size: 1rem; }
+#storage-panel, #site-add-more, #page-add-more { padding: 6px 0; }
+.app-page-link.is-current { font-weight: 700; text-decoration: none; color: inherit; }
+#site-pages li.is-current, .app-card-pages li.is-warn { font-weight: 700; }
+.app-card-pages { margin: 4px 0; padding-left: 18px; }
+#ownership-panel pre.app-cmd { margin: 2px 0 8px; }
+#site-stop-all-form { margin-top: 10px; }
+@media (max-width: 520px) {
+  .app-site-cards { grid-template-columns: 1fr; }
+}
+
+/* ---- the site screen in six groups; checklists, the permits table, the environment report (statuses always carry a mark and words, never colour alone) ---- */
+[hidden] { display: none !important; }
+.app-run-panel, .app-ready, .app-notice, .app-site-card, .app-group { overflow-wrap: anywhere; max-width: 100%; }
+.app-sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.app-group { margin: 28px 0 8px; padding: 6px 12px; font-size: 1.05rem; border-left: 8px solid var(--navy, #0b1f4a); background: #eef1f7; color: var(--ink, #14233f); }
+.app-external { margin: 8px 0; padding: 8px 12px; border-left: 6px solid #8a96ad; background: #f7f9fc; color: var(--ink, #14233f); font-weight: 400; }
+.app-overview, .app-steps-list { margin: 8px 0; padding-left: 0; list-style: none; }
+.app-overview li, .app-steps-list li { margin: 4px 0; padding: 6px 10px; border-left: 6px solid #c8d0dc; background: #fff; }
+.app-steps-list { counter-reset: step; }
+.app-steps-list li { counter-increment: step; }
+.app-steps-list li::before { content: counter(step) '. '; font-weight: 700; }
+.app-steps-list li.is-done, .app-overview li.app-overview-ok { border-left-color: #0b7a4b; }
+.app-steps-list li.is-next, .app-overview li.app-overview-warn { border-left-color: var(--amber, #ffb020); background: #fff8e8; }
+.app-overview li.app-overview-error { border-left-color: #b42318; background: #fdecea; }
+.app-steps-list li.is-skip { color: var(--muted, #4a5a78); }
+.app-table-wrap { max-width: 100%; overflow-x: auto; }
+.app-table { width: 100%; border-collapse: collapse; margin: 8px 0; }
+.app-table th, .app-table td { padding: 6px 8px; border: 1px solid #c8d0dc; text-align: left; vertical-align: top; }
+.app-table thead th { background: #eef1f7; }
+.app-table tbody th { font-weight: 700; }
+.app-table tr.app-level-warn th, .app-table tr.app-env-warn th { border-left: 6px solid var(--amber, #ffb020); }
+.app-table tr.app-level-error th, .app-table tr.app-env-missing th { border-left: 6px solid #b42318; }
+.app-table tr.app-level-ok th, .app-table tr.app-env-ok th { border-left: 6px solid #0b7a4b; }
+#permits-notices li.is-error, #http-notifications li.is-error { color: #b42318; font-weight: 700; }
+#permits-notices li.is-warn, #http-notifications li.is-warn { color: #8a4b00; font-weight: 700; }
+#http-notifications li.is-ok { color: #0b7a4b; }
+.app-jump { font-weight: 700; }
+/* keyboard focus is always visible */
+a:focus-visible, summary:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--cyan, #12c8f0); outline-offset: 2px; }
+#main [tabindex="-1"]:focus { outline: 2px dashed var(--cyan, #12c8f0); outline-offset: 2px; }
+.app-field input[type="text"]:focus-visible, .app-field input[type="url"]:focus-visible { outline: 3px solid var(--cyan, #12c8f0); outline-offset: 2px; }
+@media (max-width: 520px) {  /* the tables become stacked cards: nothing scrolls sideways at 500 px */
+  .app-table, .app-table thead, .app-table tbody, .app-table tr, .app-table th, .app-table td { display: block; width: 100%; box-sizing: border-box; }
+  .app-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
+  .app-table tr { margin: 8px 0; border: 1px solid #c8d0dc; }
+  .app-table th, .app-table td { border: 0; border-bottom: 1px solid #e3e8f0; }
+  .app-table td[data-label]::before, .app-table tbody th[data-label]::before { content: attr(data-label) '：'; font-weight: 700; color: var(--muted, #4a5a78); }
+  .app-group { font-size: 1rem; }
+  .app-overview li, .app-steps-list li { padding: 6px; }
+  .app-run-form select, .app-run-form input { max-width: 100%; }
+}

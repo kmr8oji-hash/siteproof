@@ -56,13 +56,13 @@ class NoxiWorks(unittest.TestCase):
         self.assertTrue(all('AlarmPeriodSeconds' not in p['parameters'] for p in plans))        # no per-page alarm any more
 
     def test_shared_expiry_stale_unknown_and_renewal_is_not_completion(self):
-        observation = {'scope': 'noxiworks-sample.test', 'source': 'manual registrar export',
+        observation = {'scope': 'noxiworks.com', 'source': 'manual registrar export',
             'observed_at': format_utc(NOW), 'expires_at': format_utc(NOW - timedelta(days=1)), 'auto_renew_expected': True}
-        self.assertEqual(expiry_view(observation, scope='noxiworks-sample.test', now=NOW, max_age=60)['state'], 'EXPIRED')
+        self.assertEqual(expiry_view(observation, scope='noxiworks.com', now=NOW, max_age=60)['state'], 'EXPIRED')
         for bad in ({}, {**observation, 'expires_at': None}, {**observation, 'source': ''},
                     {**observation, 'observed_at': format_utc(NOW - timedelta(days=3))},
                     {**observation, 'observed_at': format_utc(NOW + timedelta(seconds=1))}):
-            self.assertEqual(expiry_view(bad, scope='noxiworks-sample.test', now=NOW, max_age=60)['state'], 'UNKNOWN')
+            self.assertEqual(expiry_view(bad, scope='noxiworks.com', now=NOW, max_age=60)['state'], 'UNKNOWN')
         with tempfile.TemporaryDirectory() as tmp:
             sample = make_sample(Path(tmp) / 'sample', NOW)
             with self.assertRaises(ValueError):
@@ -71,7 +71,7 @@ class NoxiWorks(unittest.TestCase):
                 dashboard({**sample, 'source': 'AWS_EXPORT'}, now=NOW)
             view = dashboard(sample, now=NOW)
             self.assertEqual(len([x for x in view['expiry'] if x['kind'] == 'TLS証明書']), 3)
-            owned = next(x for x in view['expiry'] if x['kind'] == 'ドメイン登録' and x['scope'] == 'noxiworks-sample.test')
+            owned = next(x for x in view['expiry'] if x['kind'] == 'ドメイン登録' and x['scope'] == 'noxiworks.com')
             self.assertEqual(owned['state'], 'EXPIRED')
             sample['domains']['workers.dev'] = {**observation, 'scope': 'workers.dev'}
             managed = [x for x in dashboard(sample, now=NOW)['expiry'] if x['state'] == 'PROVIDER_MANAGED']
@@ -163,8 +163,7 @@ class CaptureFixtureExport(unittest.TestCase):
         from tools.export_capture_fixture import prepare_fixture, export_fixture, verify_links, main
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
-            if root.drive.upper() != 'D:':  # the tool only accepts a new D: directory (a deliberate guard in tools/export_capture_fixture.py, unchanged)
-                self.skipTest('needs a temp folder on drive D: (tools/export_capture_fixture.py accepts only D:)')
+            self.assertEqual(root.drive.upper(), 'D:')
             with patch('socket.socket', side_effect=AssertionError('network forbidden')), \
                     patch('subprocess.Popen', side_effect=AssertionError('browser/process forbidden')):
                 fixture = prepare_fixture(root / 'fixture', now=NOW)
@@ -233,8 +232,7 @@ class CaptureFixtureExport(unittest.TestCase):
         from tools.export_capture_fixture import prepare_fixture, export_fixture
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
-            if root.drive.upper() != 'D:':  # the tool only accepts a new D: directory (a deliberate guard in tools/export_capture_fixture.py, unchanged)
-                self.skipTest('needs a temp folder on drive D: (tools/export_capture_fixture.py accepts only D:)')
+            self.assertEqual(root.drive.upper(), 'D:')
             with patch('socket.socket', side_effect=AssertionError('network forbidden')), \
                     patch('subprocess.Popen', side_effect=AssertionError('browser/process forbidden')):
                 for failure in ('manifest', 'missing_png', 'cross_page'):
